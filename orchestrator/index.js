@@ -31,7 +31,7 @@ async function tick() {
       if (activeJobs.has(key)) continue;
 
       const labels = issue.labels.map((l) => l.name);
-      if (labels.includes('in-progress') || labels.includes('deployed')) continue;
+      if (labels.includes('in-progress') || labels.includes('deployed') || labels.includes('ai-failed')) continue;
 
       let agent = null;
       if (labels.includes('for-claude-code')) agent = 'claude';
@@ -121,8 +121,8 @@ async function handleIssue(project, issue, agentName) {
       execSync(`git -C ${project.localPath} checkout ${project.defaultBranch}`, { stdio: 'pipe' });
       execSync(`git -C ${project.localPath} branch -D ${branch}`, { stdio: 'pipe' });
     } catch {}
-    await labelIssue(project.repo, issue.number, [], ['in-progress']);
-    await notify(`❌ *Failed #${issue.number}*\n${issue.title}\n${err.message}`);
+    await labelIssue(project.repo, issue.number, ['ai-failed'], ['in-progress']);
+    await notify(`❌ *Failed #${issue.number}*\n${issue.title}\n${err.message}\n_Remove \`ai-failed\` label to retry._`);
   }
 }
 
