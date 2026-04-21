@@ -43,3 +43,22 @@ export function getAllAgentStatus() {
   }
   return result;
 }
+
+// Process handle store so we can kill running agents
+const processes = new Map(); // issueNumber -> ChildProcess
+
+export function registerProcess(issueNumber, proc) {
+  processes.set(issueNumber, proc);
+}
+
+export function killProcess(issueNumber) {
+  const proc = processes.get(issueNumber);
+  if (!proc) return false;
+  proc.kill('SIGTERM');
+  processes.delete(issueNumber);
+  return true;
+}
+
+export function getRunningIssueNumbers() {
+  return [...processes.keys()];
+}

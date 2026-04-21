@@ -6,8 +6,9 @@ export async function GET() {
   try {
     const res = await fetch(`${ORCHESTRATOR_URL}/status`, { cache: 'no-store' });
     const data = await res.json();
+    // data = { paused: bool, agents: [] }
     return NextResponse.json(data);
   } catch {
-    return NextResponse.json([]);
+    return NextResponse.json({ paused: false, agents: [] });
   }
 }

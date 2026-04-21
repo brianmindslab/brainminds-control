@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import { appendFileSync } from 'fs';
-import { appendLog, setAgentStatus, clearAgentStatus } from '../log-store.js';
+import { appendLog, setAgentStatus, clearAgentStatus, registerProcess } from '../log-store.js';
 
 const TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -38,6 +38,7 @@ export function runClaudeAgent(project, issue, context) {
       }
     }
 
+    registerProcess(issue.number, proc);
     proc.stdout.on('data', onData);
     proc.stderr.on('data', onData);
 

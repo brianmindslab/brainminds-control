@@ -6,8 +6,9 @@ import { runGeminiAgent } from './agents/gemini.js';
 import { runCodexAgent } from './agents/codex.js';
 import { getOpenIssues, labelIssue, getPRsNeedingReview, commentOnPR } from './github.js';
 import { notify } from './telegram.js';
-import { getAllAgentStatus, getLogs, subscribe } from './log-store.js';
+import { getAllAgentStatus, getLogs, subscribe, killProcess } from './log-store.js';
 
+let paused = false;
 const POLL_INTERVAL = 2 * 60 * 1000;
 const projects = JSON.parse(readFileSync(new URL('../projects.json', import.meta.url))).projects;
 
@@ -15,6 +16,7 @@ const activeJobs = new Set();
 export const triggerQueue = new Set();
 
 async function tick() {
+  if (paused) return;
   for (const project of projects) {
     let issues = [];
     try {
@@ -185,7 +187,33 @@ const httpServer = createServer((req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(getAllAgentStatus()));
+    res.end(JSON.stringify({ paused, agents: getAllAgentStatus() }));
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/pause') {
+    paused = true;
+    console.log('[orchestrator] paused by control panel');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, paused: true }));
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/resume') {
+    paused = false;
+    console.log('[orchestrator] resumed by control panel');
+    tick(); // run a tick immediately on resume
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, paused: false }));
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname.startsWith('/kill/')) {
+    const issueNumber = Number(url.pathname.split('/kill/')[1]);
+    const killed = killProcess(issueNumber);
+    console.log(`[orchestrator] kill request for #${issueNumber}: ${killed}`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: killed }));
     return;
   }
 
