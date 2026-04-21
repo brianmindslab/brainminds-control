@@ -1,0 +1,12 @@
+{
+  "projects": [
+    {
+      "id": "braintime",
+      "name": "Braintime LMS",
+      "repo": "brianmindslab/braintime",
+      "localPath": "/opt/orchestrator/projects/braintime",
+      "productionServer": "46.225.217.226",
+      "defaultBranch": "main"
+    }
+  ]
+}
