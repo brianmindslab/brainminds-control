@@ -4,7 +4,7 @@ import { createServer } from 'http';
 import { runClaudeAgent } from './agents/claude.js';
 import { runGeminiAgent } from './agents/gemini.js';
 import { runCodexAgent } from './agents/codex.js';
-import { getOpenIssues, labelIssue, getPRsNeedingReview, commentOnPR } from './github.js';
+import { getOpenIssues, labelIssue, getPRsNeedingReview, commentOnPR, ensureLabelsExist } from './github.js';
 import { notify } from './telegram.js';
 import { getAllAgentStatus, getLogs, subscribe, killProcess } from './log-store.js';
 
@@ -242,5 +242,11 @@ const httpServer = createServer((req, res) => {
 httpServer.listen(3001, () => console.log('[orchestrator] internal HTTP on :3001'));
 
 console.log('🚀 Orchestrator started — polling every 2 minutes');
+
+// Ensure all required GitHub labels exist on every project repo at startup
+for (const project of projects) {
+  ensureLabelsExist(project.repo);
+}
+
 tick();
 setInterval(tick, POLL_INTERVAL);
