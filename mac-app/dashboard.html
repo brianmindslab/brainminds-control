@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Brainminds Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+
+  body {
+    background: #0a0a0b;
+    color: #f4f4f5;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    font-size: 13px;
+    user-select: none;
+    overflow-x: hidden;
+  }
+
+  /* title bar area — space for traffic lights */
+  .titlebar {
+    -webkit-app-region: drag;
+    height: 52px;
+    background: #111113;
+    border-bottom: 1px solid #1f1f23;
+    display: flex;
+    align-items: center;
+    padding: 0 20px 0 80px;
+    gap: 12px;
+  }
+  .titlebar-title {
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    flex: 1;
+  }
+  .titlebar-actions {
+    -webkit-app-region: no-drag;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pill-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 20px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: #71717a;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .dot.ok  { background: #22c55e; }
+  .dot.bad { background: #ef4444; }
+  .dot.pulse { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .icon-btn {
+    -webkit-app-region: no-drag;
+    background: none; border: 1px solid #27272a; color: #71717a;
+    font-size: 13px; cursor: pointer; padding: 5px 9px;
+    border-radius: 8px; line-height: 1;
+  }
+  .icon-btn:hover { background: #27272a; color: #a1a1aa; }
+
+  /* main layout */
+  .main { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* orchestrator control card */
+  .orch-card {
+    background: #111113;
+    border: 1px solid #27272a;
+    border-radius: 14px;
+    padding: 16px 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .orch-status-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .orch-status-dot.running { background: #22c55e; animation: pulse 2s infinite; }
+  .orch-status-dot.stopped { background: #ef4444; }
+  .orch-status-dot.unknown { background: #52525b; }
+  .orch-info { flex: 1; }
+  .orch-label { font-weight: 700; font-size: 13px; }
+  .orch-sub { font-size: 11px; color: #52525b; margin-top: 2px; }
+  .orch-btns { display: flex; gap: 6px; }
+  .ctrl-btn {
+    border: none; border-radius: 8px; padding: 7px 14px;
+    font-size: 11px; font-weight: 800; cursor: pointer;
+    transition: opacity 0.1s;
+  }
+  .ctrl-btn:active { opacity: 0.7; }
+  .ctrl-btn:disabled { opacity: 0.35; cursor: default; }
+  .btn-start   { background: #14532d; color: #86efac; }
+  .btn-stop    { background: #450a0a; color: #f87171; }
+  .btn-restart { background: #1c1c1e; color: #a1a1aa; border: 1px solid #27272a; }
+  .btn-pause   { background: #451a03; color: #fbbf24; }
+  .btn-resume  { background: #14532d; color: #86efac; }
+
+  /* sections */
+  .section-label {
+    font-size: 10px; font-weight: 800; color: #3f3f46;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+
+  /* agent rows */
+  .agent-row {
+    background: #111113; border: 1px solid #27272a;
+    border-radius: 10px; padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 6px;
+  }
+  .agent-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink:0; animation: pulse 2s infinite; }
+  .agent-info { flex: 1; min-width: 0; }
+  .agent-main { display: flex; align-items: baseline; gap: 6px; }
+  .agent-name { font-weight: 700; font-size: 13px; }
+  .agent-issue { color: #71717a; font-size: 11px; }
+  .agent-elapsed { font-family: 'SF Mono', monospace; font-size: 11px; color: #52525b; }
+  .agent-file { font-size: 11px; color: #52525b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .btn-kill { border: none; border-radius: 7px; padding: 5px 12px; font-size: 11px; font-weight: 800; cursor: pointer; background: #450a0a; color: #f87171; }
+  .btn-kill:active { opacity: 0.7; }
+
+  /* PR rows */
+  .pr-row {
+    background: #0d1f16; border: 1px solid #14532d;
+    border-radius: 10px; padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 6px;
+  }
+  .pr-info { flex: 1; min-width: 0; }
+  .pr-title { font-size: 12px; color: #d4d4d8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-num { color: #52525b; margin-right: 3px; }
+  .pr-btns { display: flex; gap: 5px; flex-shrink: 0; }
+  .btn-view  { border: none; border-radius: 7px; padding: 5px 12px; font-size: 11px; font-weight: 800; cursor: pointer; background: #1c1c1e; color: #a1a1aa; }
+  .btn-merge { border: none; border-radius: 7px; padding: 5px 12px; font-size: 11px; font-weight: 800; cursor: pointer; background: #14532d; color: #86efac; }
+  .btn-view:active, .btn-merge:active { opacity: 0.7; }
+
+  .empty { color: #3f3f46; font-size: 12px; text-align: center; padding: 16px; background: #111113; border: 1px dashed #27272a; border-radius: 10px; }
+
+  /* concurrency bar */
+  .concur-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .concur-slot { width: 28px; height: 6px; border-radius: 3px; background: #27272a; }
+  .concur-slot.active { background: #22c55e; }
+  .concur-label { font-size: 11px; color: #52525b; }
+
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #27272a; border-top-color: #71717a; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 4px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .last-refresh { font-size: 10px; color: #3f3f46; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <span class="titlebar-title">Brainminds</span>
+  <div class="titlebar-actions">
+    <div class="pill-status">
+      <div class="dot" id="builder-dot"></div>
+      <span>Builder</span>
+    </div>
+    <div class="pill-status">
+      <div class="dot" id="prod-dot"></div>
+      <span>Prod</span>
+    </div>
+    <span class="last-refresh" id="last-refresh"></span>
+    <button class="icon-btn" onclick="refresh()" title="Refresh">↺</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- Orchestrator control -->
+  <div class="orch-card">
+    <div class="orch-status-dot unknown" id="orch-dot"></div>
+    <div class="orch-info">
+      <div class="orch-label" id="orch-label">Orchestrator</div>
+      <div class="orch-sub" id="orch-sub">Checking…</div>
+    </div>
+    <div class="orch-btns">
+      <button class="ctrl-btn btn-start"   id="btn-start"   onclick="orchStart()">Start</button>
+      <button class="ctrl-btn btn-pause"   id="btn-pause"   onclick="orchPause()">Pause</button>
+      <button class="ctrl-btn btn-restart" id="btn-restart" onclick="orchRestart()">Restart</button>
+      <button class="ctrl-btn btn-stop"    id="btn-stop"    onclick="orchStop()">Stop</button>
+    </div>
+  </div>
+
+  <!-- Active Agents -->
+  <div id="agents-section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div class="section-label" style="margin:0">Active Agents</div>
+      <div class="concur-bar" id="concur-bar"></div>
+    </div>
+    <div id="agents-list"></div>
+  </div>
+
+  <!-- PRs -->
+  <div id="prs-section">
+    <div class="section-label">Ready to Merge</div>
+    <div id="prs-list"></div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+let currentPaused = false;
+let orchOnline    = false;
+let elapsedTimer  = null;
+let agentStartTimes = {};
+
+api.onRefresh(() => refresh());
+api.onStatus(d => applyStatus(d));
+refresh();
+setInterval(refresh, 8000);
+
+async function refresh() {
+  try {
+    const d = await api.getStatus();
+    applyStatus(d);
+    document.getElementById('last-refresh').textContent =
+      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch {}
+}
+
+function applyStatus(d) {
+  orchOnline    = d.orchOnline !== false;
+  currentPaused = !!d.paused;
+  const agents  = d.agents ?? [];
+  const prs     = d.prs ?? [];
+
+  // Dots
+  setDot('builder-dot', orchOnline);
+  setDot('prod-dot', d.prodOk !== false);
+
+  // Orchestrator card
+  const dot    = document.getElementById('orch-dot');
+  const label  = document.getElementById('orch-label');
+  const sub    = document.getElementById('orch-sub');
+  const btnStart   = document.getElementById('btn-start');
+  const btnPause   = document.getElementById('btn-pause');
+  const btnStop    = document.getElementById('btn-stop');
+  const btnRestart = document.getElementById('btn-restart');
+
+  if (!orchOnline) {
+    dot.className = 'orch-status-dot stopped';
+    label.textContent = 'Orchestrator — Stopped';
+    sub.textContent = 'Click Start to launch the orchestrator on the server';
+    btnStart.disabled = false;
+    btnPause.disabled = true;
+    btnStop.disabled  = true;
+    btnRestart.disabled = false;
+  } else if (currentPaused) {
+    dot.className = 'orch-status-dot unknown';
+    label.textContent = 'Orchestrator — Paused';
+    sub.textContent = `${agents.length} agent${agents.length !== 1 ? 's' : ''} running · polling suspended`;
+    btnStart.disabled = true;
+    btnPause.textContent = 'Resume';
+    btnPause.className = 'ctrl-btn btn-resume';
+    btnPause.disabled = false;
+    btnStop.disabled  = false;
+    btnRestart.disabled = false;
+  } else {
+    dot.className = 'orch-status-dot running';
+    label.textContent = 'Orchestrator — Running';
+    sub.textContent = `${agents.length} agent${agents.length !== 1 ? 's' : ''} active · polling every 2 min`;
+    btnStart.disabled = true;
+    btnPause.textContent = 'Pause';
+    btnPause.className = 'ctrl-btn btn-pause';
+    btnPause.disabled = false;
+    btnStop.disabled  = false;
+    btnRestart.disabled = false;
+  }
+
+  // Concurrency slots
+  const bar = document.getElementById('concur-bar');
+  const MAX = 3;
+  bar.innerHTML = Array.from({ length: MAX }, (_, i) =>
+    `<div class="concur-slot${i < agents.length ? ' active' : ''}"></div>`
+  ).join('') + `<span class="concur-label">${agents.length}/${MAX} slots</span>`;
+
+  // Agents
+  agentStartTimes = {};
+  const agentsList = document.getElementById('agents-list');
+  if (agents.length) {
+    agents.forEach(a => { agentStartTimes[a.issueNumber] = a.startedAt; });
+    agentsList.innerHTML = agents.map(renderAgent).join('');
+    startElapsedTimer();
+  } else {
+    clearInterval(elapsedTimer);
+    agentsList.innerHTML = '<div class="empty">No active agents</div>';
+  }
+
+  // PRs
+  const prsList = document.getElementById('prs-list');
+  if (prs.length) {
+    prsList.innerHTML = prs.map(renderPR).join('');
+  } else {
+    prsList.innerHTML = '<div class="empty">No PRs waiting to merge</div>';
+  }
+}
+
+function renderAgent(a) {
+  return `
+    <div class="agent-row">
+      <div class="agent-dot"></div>
+      <div class="agent-info">
+        <div class="agent-main">
+          <span class="agent-name">${a.agentName}</span>
+          <span class="agent-issue">#${a.issueNumber}</span>
+          <span class="agent-elapsed" id="el-${a.issueNumber}">${elapsed(a.startedAt)}</span>
+        </div>
+        ${a.currentFile ? `<div class="agent-file">${a.currentFile}</div>` : ''}
+      </div>
+      <button class="btn-kill" onclick="killAgent(${a.issueNumber}, this)">Stop</button>
+    </div>`;
+}
+
+function renderPR(pr) {
+  return `
+    <div class="pr-row">
+      <div class="pr-info">
+        <div class="pr-title"><span class="pr-num">#${pr.number}</span>${pr.title}</div>
+      </div>
+      <div class="pr-btns">
+        <button class="btn-view"  onclick="api.openBrowser()">View ↗</button>
+        <button class="btn-merge" onclick="mergePR(${pr.number}, this)">Merge ▶</button>
+      </div>
+    </div>`;
+}
+
+// ── actions ────────────────────────────────────────────────────────────────────
+
+async function orchStart() {
+  setWorking('btn-start', 'Starting…');
+  await api.orchStart().catch(() => {});
+  await refresh();
+  resetBtn('btn-start', 'Start');
+}
+
+async function orchStop() {
+  setWorking('btn-stop', 'Stopping…');
+  await api.orchStop().catch(() => {});
+  await refresh();
+  resetBtn('btn-stop', 'Stop');
+}
+
+async function orchRestart() {
+  setWorking('btn-restart', 'Restarting…');
+  await api.orchRestart().catch(() => {});
+  await new Promise(r => setTimeout(r, 3000));
+  await refresh();
+  resetBtn('btn-restart', 'Restart');
+}
+
+async function orchPause() {
+  const btn = document.getElementById('btn-pause');
+  const wasPaused = currentPaused;
+  btn.textContent = '…';
+  btn.disabled = true;
+  if (wasPaused) await api.resume().catch(() => {});
+  else           await api.pause().catch(() => {});
+  await refresh();
+}
+
+async function killAgent(n, btn) {
+  btn.textContent = '…'; btn.disabled = true;
+  await api.kill(n).catch(() => {});
+  await refresh();
+}
+
+async function mergePR(n, btn) {
+  btn.textContent = '…'; btn.disabled = true;
+  await api.mergePR(n).catch(() => {});
+  await refresh();
+}
+
+function setWorking(id, text) {
+  const b = document.getElementById(id);
+  if (b) { b.textContent = text; b.disabled = true; }
+}
+function resetBtn(id, text) {
+  const b = document.getElementById(id);
+  if (b) { b.textContent = text; b.disabled = false; }
+}
+
+// ── helpers ────────────────────────────────────────────────────────────────────
+
+function elapsed(iso) {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function startElapsedTimer() {
+  clearInterval(elapsedTimer);
+  elapsedTimer = setInterval(() => {
+    for (const [num, iso] of Object.entries(agentStartTimes)) {
+      const el = document.getElementById(`el-${num}`);
+      if (el) el.textContent = elapsed(iso);
+    }
+  }, 1000);
+}
+
+function setDot(id, ok) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = `dot ${ok ? 'ok pulse' : 'bad'}`;
+}
+</script>
+</body>
+</html>

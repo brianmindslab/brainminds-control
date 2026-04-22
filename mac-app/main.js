@@ -1,95 +1,142 @@
 const { app, ipcMain, nativeImage, Tray, BrowserWindow, shell } = require('electron');
-const path = require('path');
-const { spawn } = require('child_process');
-const http = require('http');
+const path  = require('path');
+const { spawn, execSync } = require('child_process');
+const http  = require('http');
+const https = require('https');
+const fs    = require('fs');
 
-// ── config ────────────────────────────────────────────────────────────────────
+// ── logging ────────────────────────────────────────────────────────────────────
+const LOG_FILE = '/tmp/brainminds-app.log';
+fs.writeFileSync(LOG_FILE, `=== Brainminds started ${new Date().toISOString()} ===\n`);
+function log(...args) {
+  const line = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
+  process.stdout.write(line);
+  fs.appendFileSync(LOG_FILE, line);
+}
+process.on('uncaughtException',  (err)    => log('UNCAUGHT EXCEPTION:', err.stack || err.message));
+process.on('unhandledRejection', (reason) => log('UNHANDLED REJECTION:', reason?.stack || reason));
 
+// ── config ─────────────────────────────────────────────────────────────────────
 const SERVER     = 'root@116.203.251.28';
 const SSH_KEY    = `${process.env.HOME}/.ssh/id_ed25519_personalai`;
-const LOCAL_PORT = 13001;   // local tunnel → server:3001
+const LOCAL_PORT = 13001;
 const ORCH_BASE  = `http://localhost:${LOCAL_PORT}`;
+const REPO       = 'brianmindslab/braintime';
+const GH_TOKEN   = process.env.GH_TOKEN; // set in shell env or via gh auth login
+const GH_BIN     = '/opt/homebrew/bin/gh';
+const PROD_IP    = '46.225.217.226';
 
-// ── state ─────────────────────────────────────────────────────────────────────
+// ── state ──────────────────────────────────────────────────────────────────────
+let tray        = null;
+let popupWin    = null;
+let mainWin     = null;
+let tunnel      = null;
+let connected   = false;
+let lastState   = '';
 
-let tray      = null;
-let win       = null;
-let tunnel    = null;
-let connected = false;
-
-// ── SSH tunnel ────────────────────────────────────────────────────────────────
-
+// ── SSH tunnel ─────────────────────────────────────────────────────────────────
 function startTunnel() {
   if (tunnel) return;
   tunnel = spawn('ssh', [
     '-i', SSH_KEY,
     '-L', `${LOCAL_PORT}:localhost:3001`,
-    '-N', '-o', 'StrictHostKeyChecking=no',
+    '-N',
+    '-o', 'StrictHostKeyChecking=no',
     '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=3',
     '-o', 'ExitOnForwardFailure=yes',
     SERVER,
   ]);
 
-  tunnel.on('close', (code) => {
+  tunnel.stderr.on('data', () => {});
+
+  tunnel.on('close', () => {
     connected = false;
     tunnel = null;
     updateIcon();
-    // Reconnect after 5 s unless app is quitting
     if (!app.isQuitting) setTimeout(startTunnel, 5000);
   });
 }
 
-// ── HTTP helpers (promise-based, no axios) ────────────────────────────────────
+// ── SSH command helper (for PM2 control) ───────────────────────────────────────
+function sshExec(cmd) {
+  return execSync(
+    `ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=8 ${SERVER} "${cmd}"`,
+    { encoding: 'utf8', timeout: 20000 }
+  ).trim();
+}
 
-function orchGet(path) {
+// ── HTTP helpers ───────────────────────────────────────────────────────────────
+function orchGet(urlPath) {
   return new Promise((resolve, reject) => {
-    const req = http.get(`${ORCH_BASE}${path}`, (res) => {
+    const req = http.get(`${ORCH_BASE}${urlPath}`, (res) => {
       let body = '';
-      res.on('data', d => body += d);
+      res.on('data', d => (body += d));
       res.on('end', () => {
         connected = true;
         updateIcon();
         try { resolve(JSON.parse(body)); } catch { resolve({}); }
       });
     });
-    req.on('error', (err) => {
-      connected = false;
-      updateIcon();
-      reject(err);
-    });
-    req.setTimeout(4000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('error', err => { connected = false; updateIcon(); reject(err); });
+    req.setTimeout(5000, () => { req.destroy(); reject(new Error('timeout')); });
   });
 }
 
-function orchPost(path, body = {}) {
+function orchPost(urlPath) {
   return new Promise((resolve, reject) => {
-    const data = JSON.stringify(body);
     const opts = {
-      hostname: 'localhost',
-      port: LOCAL_PORT,
-      path,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+      hostname: 'localhost', port: LOCAL_PORT, path: urlPath, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': 0 },
     };
     const req = http.request(opts, (res) => {
       let out = '';
-      res.on('data', d => out += d);
+      res.on('data', d => (out += d));
       res.on('end', () => { connected = true; updateIcon(); try { resolve(JSON.parse(out)); } catch { resolve({}); } });
     });
-    req.on('error', (err) => { connected = false; updateIcon(); reject(err); });
-    req.setTimeout(4000, () => { req.destroy(); reject(new Error('timeout')); });
-    req.write(data);
+    req.on('error', err => { connected = false; updateIcon(); reject(err); });
+    req.setTimeout(5000, () => { req.destroy(); reject(new Error('timeout')); });
     req.end();
   });
 }
 
-// ── tray icon ─────────────────────────────────────────────────────────────────
+function pingProd() {
+  return new Promise((resolve) => {
+    const req = http.get(`http://${PROD_IP}/api/diagnostics`, { timeout: 4000 }, (res) => {
+      resolve(res.statusCode < 500);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
 
-let lastState = '';
+// ── gh CLI helpers ─────────────────────────────────────────────────────────────
+function ghExec(cmd) {
+  try {
+    return execSync(`${GH_BIN} ${cmd}`, {
+      encoding: 'utf8',
+      env: { ...process.env, GH_TOKEN },
+      timeout: 10000,
+    });
+  } catch {
+    return '[]';
+  }
+}
 
-function iconPath(name) {
-  return path.join(__dirname, 'assets', `${name}.png`);
+function getPRs() {
+  const out = ghExec(`pr list --repo ${REPO} --state open --json number,title,url --limit 20`);
+  try { return JSON.parse(out); } catch { return []; }
+}
+
+function mergePR(prNumber) {
+  ghExec(`pr merge ${prNumber} --repo ${REPO} --squash --delete-branch`);
+}
+
+// ── tray icon ──────────────────────────────────────────────────────────────────
+function loadIcon(name) {
+  const img = nativeImage.createFromPath(path.join(__dirname, 'assets', `${name}.png`));
+  img.setTemplateImage(true);
+  return img;
 }
 
 function updateIcon(paused) {
@@ -97,20 +144,16 @@ function updateIcon(paused) {
   const state = !connected ? 'disconnected' : paused ? 'paused' : 'running';
   if (state === lastState) return;
   lastState = state;
-
-  const icons = { running: 'icon-running', paused: 'icon-paused', disconnected: 'icon-disconnected' };
-  const img = nativeImage.createFromPath(iconPath(icons[state]));
-  img.setTemplateImage(true);
-  tray.setImage(img);
+  const names = { running: 'icon-running', paused: 'icon-paused', disconnected: 'icon-disconnected' };
+  tray.setImage(loadIcon(names[state]));
   tray.setToolTip(state === 'disconnected' ? 'Brainminds — connecting…' : `Brainminds — ${state}`);
 }
 
-// ── window ────────────────────────────────────────────────────────────────────
-
-function createWindow() {
-  win = new BrowserWindow({
+// ── popup window (tray click) ──────────────────────────────────────────────────
+function createPopupWindow() {
+  popupWin = new BrowserWindow({
     width: 340,
-    height: 520,
+    height: 400,
     show: false,
     frame: false,
     resizable: false,
@@ -122,78 +165,132 @@ function createWindow() {
     },
   });
 
-  win.loadFile('index.html');
-
-  win.on('blur', () => {
-    if (win && !win.webContents.isDevToolsOpened()) win.hide();
+  popupWin.loadFile(path.join(__dirname, 'index.html'));
+  popupWin.on('blur', () => {
+    if (popupWin && !popupWin.webContents.isDevToolsOpened()) popupWin.hide();
   });
 }
 
-function toggleWindow() {
-  if (!win) return;
-  if (win.isVisible()) {
-    win.hide();
-  } else {
-    const bounds = tray.getBounds();
-    const winBounds = win.getBounds();
-    const x = Math.round(bounds.x + bounds.width / 2 - winBounds.width / 2);
-    const y = bounds.y + bounds.height + 4;
-    win.setPosition(x, y);
-    win.show();
-    win.focus();
-    win.webContents.send('refresh');
+function togglePopup() {
+  if (!popupWin) return;
+  if (popupWin.isVisible()) {
+    popupWin.hide();
+    return;
+  }
+  const { x, y, width, height } = tray.getBounds();
+  const [ww] = popupWin.getSize();
+  popupWin.setPosition(Math.round(x + width / 2 - ww / 2), y + height + 4);
+  popupWin.show();
+  popupWin.focus();
+  popupWin.webContents.send('refresh');
+}
+
+// ── main dashboard window ──────────────────────────────────────────────────────
+function createMainWindow() {
+  if (mainWin) {
+    mainWin.show();
+    mainWin.focus();
+    return;
+  }
+
+  mainWin = new BrowserWindow({
+    width: 760,
+    height: 600,
+    minWidth: 600,
+    minHeight: 440,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 16 },
+    backgroundColor: '#0a0a0b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+    },
+  });
+
+  mainWin.loadFile(path.join(__dirname, 'dashboard.html'));
+
+  mainWin.on('closed', () => { mainWin = null; });
+}
+
+// ── shared status fetch ────────────────────────────────────────────────────────
+async function fetchStatus() {
+  try {
+    const [orch, prs, prodOk] = await Promise.all([
+      orchGet('/status'),
+      Promise.resolve(getPRs()),
+      pingProd(),
+    ]);
+    return { ...orch, prs, prodOk, orchOnline: true };
+  } catch {
+    return { paused: false, agents: [], prs: [], prodOk: false, error: true, orchOnline: false };
   }
 }
 
-// ── IPC handlers ──────────────────────────────────────────────────────────────
+// ── IPC ────────────────────────────────────────────────────────────────────────
+ipcMain.handle('get-status', fetchStatus);
 
-ipcMain.handle('get-status', async () => {
-  try { return await orchGet('/status'); }
-  catch { return { paused: false, agents: [], error: true }; }
+ipcMain.handle('pause',    async () => orchPost('/pause').catch(() => ({})));
+ipcMain.handle('resume',   async () => orchPost('/resume').catch(() => ({})));
+ipcMain.handle('kill',     async (_, n) => orchPost(`/kill/${n}`).catch(() => ({})));
+ipcMain.handle('merge-pr', async (_, n) => { mergePR(n); return { ok: true }; });
+ipcMain.handle('open-browser', () => shell.openExternal('http://116.203.251.28:3000'));
+
+ipcMain.handle('orch-start', async () => {
+  try { sshExec('pm2 start orchestrator'); return { ok: true }; }
+  catch (err) { log('orch-start failed:', err.message); return { ok: false, error: err.message }; }
 });
 
-ipcMain.handle('pause',  async () => { try { return await orchPost('/pause');       } catch { return {}; } });
-ipcMain.handle('resume', async () => { try { return await orchPost('/resume');      } catch { return {}; } });
-ipcMain.handle('kill',   async (_, n) => { try { return await orchPost(`/kill/${n}`); } catch { return {}; } });
-
-ipcMain.handle('open-browser', async () => {
-  shell.openExternal('http://116.203.251.28:3000');
+ipcMain.handle('orch-stop', async () => {
+  try { sshExec('pm2 stop orchestrator'); return { ok: true }; }
+  catch (err) { log('orch-stop failed:', err.message); return { ok: false, error: err.message }; }
 });
 
-ipcMain.on('resize', (_, height) => {
-  if (win) win.setSize(340, Math.min(Math.max(height, 200), 600), false);
+ipcMain.handle('orch-restart', async () => {
+  try { sshExec('pm2 restart orchestrator'); return { ok: true }; }
+  catch (err) { log('orch-restart failed:', err.message); return { ok: false, error: err.message }; }
 });
 
-// ── app lifecycle ─────────────────────────────────────────────────────────────
+ipcMain.on('resize', (_, h) => {
+  if (popupWin) popupWin.setSize(340, Math.min(Math.max(h, 180), 580), false);
+});
 
-app.dock?.hide();   // hide from dock — menubar app only
+// ── app lifecycle ──────────────────────────────────────────────────────────────
+log('app module loaded');
 
 app.whenReady().then(() => {
-  const img = nativeImage.createFromPath(iconPath('icon-disconnected'));
-  img.setTemplateImage(true);
-  tray = new Tray(img);
-  tray.setToolTip('Brainminds — connecting…');
-  tray.on('click', toggleWindow);
+  log('app ready');
 
-  createWindow();
+  tray = new Tray(loadIcon('icon-disconnected'));
+  tray.setToolTip('Brainminds — connecting…');
+  tray.on('click', togglePopup);
+
+  createPopupWindow();
+  createMainWindow();  // open dashboard on launch
   startTunnel();
 
-  // Poll for status every 6 s and push to renderer
-  setInterval(async () => {
-    if (!win?.isVisible()) return;
+  // Push status to all visible windows every 6s
+  async function pollAndPush() {
     try {
-      const status = await orchGet('/status');
+      const status = await fetchStatus();
       updateIcon(status.paused);
-      win.webContents.send('status-update', status);
+      if (popupWin?.isVisible()) popupWin.webContents.send('status-update', status);
+      if (mainWin?.isVisible())  mainWin.webContents.send('status-update', status);
     } catch {
       updateIcon();
     }
-  }, 6000);
+  }
+
+  setInterval(pollAndPush, 6000);
+
+  log('ready — tray + dashboard open');
 });
+
+// Re-open dashboard when clicking dock icon
+app.on('activate', () => createMainWindow());
 
 app.on('before-quit', () => {
   app.isQuitting = true;
-  if (tunnel) tunnel.kill();
+  if (tunnel) { tunnel.kill(); tunnel = null; }
 });
 
-app.on('window-all-closed', () => {});  // keep alive as menubar app
+app.on('window-all-closed', () => {}); // stay alive as menubar app
