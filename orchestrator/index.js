@@ -4,9 +4,9 @@ import { createServer } from 'http';
 import { runClaudeAgent } from './agents/claude.js';
 import { runGeminiAgent, runGeminiTaskAgent } from './agents/gemini.js';
 import { runCodexAgent } from './agents/codex.js';
-import { getOpenIssues, getPRsNeedingReview, labelIssue, commentOnPR, ensureLabelsExist } from './github.js';
+import { getOpenIssues, getAllOpenIssues, getPRsNeedingReview, labelIssue, commentOnPR, ensureLabelsExist } from './github.js';
 import { notify } from './telegram.js';
-import { getAllAgentStatus, getLogs, subscribe, killProcess } from './log-store.js';
+import { getAllAgentStatus, getLogs, subscribe, killProcess, recordJob, getJobHistory, getMetrics } from './log-store.js';
 
 const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT ?? '3');
 const POLL_INTERVAL  = 2 * 60 * 1000;
@@ -109,6 +109,8 @@ async function tick() {
 // ── issue handler — runs concurrently per issue in isolated worktree ───────────
 
 async function handleIssue(project, issue, agentName) {
+  const startedAt = new Date().toISOString();
+  let jobSuccess  = false;
   console.log(`[orchestrator] starting #${issue.number} with ${agentName} (active: ${activeJobs.size}/${MAX_CONCURRENT})`);
   await labelIssue(project.repo, issue.number, ['in-progress']);
   await notify(`🤖 *Starting #${issue.number}*\n${issue.title}\nAgent: ${agentName}`);
@@ -165,6 +167,7 @@ async function handleIssue(project, issue, agentName) {
       }
     ).trim();
 
+    jobSuccess = true;
     console.log(`[orchestrator] PR opened: ${prUrl}`);
     await notify(`✅ *PR opened for #${issue.number}*\n${issue.title}\n${prUrl}`);
   } catch (err) {
@@ -172,6 +175,7 @@ async function handleIssue(project, issue, agentName) {
     await labelIssue(project.repo, issue.number, ['ai-failed'], ['in-progress']);
     await notify(`❌ *Failed #${issue.number}*\n${issue.title}\n${err.message}\n_Remove \`ai-failed\` label to retry._`);
   } finally {
+    recordJob({ issueNumber: issue.number, agentName, title: issue.title, startedAt, finishedAt: new Date().toISOString(), success: jobSuccess });
     cleanupWorktree(project, issue);
   }
 }
@@ -265,6 +269,38 @@ const httpServer = createServer((req, res) => {
     console.log(`[orchestrator] kill #${issueNumber}: ${killed}`);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: killed }));
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/metrics') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getMetrics()));
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/history') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getJobHistory()));
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/issues') {
+    try {
+      const issues = getAllOpenIssues(projects[0].repo);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(issues));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname.startsWith('/logs/')) {
+    const issueNumber = Number(url.pathname.split('/logs/')[1]);
+    const chunks = getLogs(issueNumber);
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end(chunks.join(''));
     return;
   }
 

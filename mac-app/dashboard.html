@@ -2,244 +2,484 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Brainminds Dashboard</title>
+<title>Brainminds</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
 
-  body {
-    background: #0a0a0b;
-    color: #f4f4f5;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-    font-size: 13px;
-    user-select: none;
-    overflow-x: hidden;
-  }
+:root {
+  --bg:      #0a0a0b;
+  --bg2:     #111113;
+  --bg3:     #18181b;
+  --border:  #1f1f23;
+  --border2: #27272a;
+  --text:    #f4f4f5;
+  --muted:   #71717a;
+  --dim:     #52525b;
+  --green:   #22c55e;
+  --red:     #ef4444;
+  --yellow:  #fbbf24;
+  --blue:    #60a5fa;
+  --purple:  #a78bfa;
+  --sidebar: 224px;
+}
 
-  /* title bar area — space for traffic lights */
-  .titlebar {
-    -webkit-app-region: drag;
-    height: 52px;
-    background: #111113;
-    border-bottom: 1px solid #1f1f23;
-    display: flex;
-    align-items: center;
-    padding: 0 20px 0 80px;
-    gap: 12px;
-  }
-  .titlebar-title {
-    font-weight: 800;
-    font-size: 14px;
-    letter-spacing: 0.02em;
-    flex: 1;
-  }
-  .titlebar-actions {
-    -webkit-app-region: no-drag;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .pill-status {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    background: #18181b;
-    border: 1px solid #27272a;
-    border-radius: 20px;
-    padding: 4px 10px;
-    font-size: 11px;
-    color: #71717a;
-  }
-  .dot { width: 6px; height: 6px; border-radius: 50%; }
-  .dot.ok  { background: #22c55e; }
-  .dot.bad { background: #ef4444; }
-  .dot.pulse { animation: pulse 2s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+html, body { height: 100%; overflow: hidden; }
 
-  .icon-btn {
-    -webkit-app-region: no-drag;
-    background: none; border: 1px solid #27272a; color: #71717a;
-    font-size: 13px; cursor: pointer; padding: 5px 9px;
-    border-radius: 8px; line-height: 1;
-  }
-  .icon-btn:hover { background: #27272a; color: #a1a1aa; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  font-size: 13px;
+  display: flex;
+  user-select: none;
+}
 
-  /* main layout */
-  .main { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+/* ── sidebar ── */
+.sidebar {
+  width: var(--sidebar);
+  min-width: var(--sidebar);
+  background: #0d0d10;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  -webkit-app-region: drag;
+}
+.sidebar-header {
+  height: 52px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 16px 10px;
+}
+.sidebar-title { font-weight: 900; font-size: 14px; letter-spacing: 0.03em; }
+.sidebar-sub   { font-size: 10px; color: var(--dim); margin-top: 1px; }
 
-  /* orchestrator control card */
-  .orch-card {
-    background: #111113;
-    border: 1px solid #27272a;
-    border-radius: 14px;
-    padding: 16px 18px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-  .orch-status-dot {
-    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
-  }
-  .orch-status-dot.running { background: #22c55e; animation: pulse 2s infinite; }
-  .orch-status-dot.stopped { background: #ef4444; }
-  .orch-status-dot.unknown { background: #52525b; }
-  .orch-info { flex: 1; }
-  .orch-label { font-weight: 700; font-size: 13px; }
-  .orch-sub { font-size: 11px; color: #52525b; margin-top: 2px; }
-  .orch-btns { display: flex; gap: 6px; }
-  .ctrl-btn {
-    border: none; border-radius: 8px; padding: 7px 14px;
-    font-size: 11px; font-weight: 800; cursor: pointer;
-    transition: opacity 0.1s;
-  }
-  .ctrl-btn:active { opacity: 0.7; }
-  .ctrl-btn:disabled { opacity: 0.35; cursor: default; }
-  .btn-start   { background: #14532d; color: #86efac; }
-  .btn-stop    { background: #450a0a; color: #f87171; }
-  .btn-restart { background: #1c1c1e; color: #a1a1aa; border: 1px solid #27272a; }
-  .btn-pause   { background: #451a03; color: #fbbf24; }
-  .btn-resume  { background: #14532d; color: #86efac; }
+.nav { padding: 8px 8px; flex: 1; -webkit-app-region: no-drag; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px;
+  cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600;
+  transition: background 0.1s, color 0.1s;
+}
+.nav-item:hover { background: var(--bg3); color: var(--text); }
+.nav-item.active { background: var(--bg2); color: var(--text); }
+.nav-icon { font-size: 14px; width: 18px; text-align: center; }
+.nav-badge {
+  margin-left: auto; background: var(--red); color: #fff;
+  font-size: 9px; font-weight: 800; padding: 1px 5px;
+  border-radius: 10px; min-width: 16px; text-align: center;
+}
 
-  /* sections */
-  .section-label {
-    font-size: 10px; font-weight: 800; color: #3f3f46;
-    text-transform: uppercase; letter-spacing: 0.1em;
-    margin-bottom: 8px;
-  }
+.sidebar-footer {
+  padding: 12px 14px 16px;
+  border-top: 1px solid var(--border);
+  -webkit-app-region: no-drag;
+}
+.health-row { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; font-size: 11px; color: var(--muted); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot.ok  { background: var(--green); animation: pulse 2s infinite; }
+.dot.bad { background: var(--red); }
+.dot.dim { background: var(--dim); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.last-sync { font-size: 10px; color: var(--dim); margin-top: 4px; }
 
-  /* agent rows */
-  .agent-row {
-    background: #111113; border: 1px solid #27272a;
-    border-radius: 10px; padding: 10px 12px;
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 6px;
-  }
-  .agent-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink:0; animation: pulse 2s infinite; }
-  .agent-info { flex: 1; min-width: 0; }
-  .agent-main { display: flex; align-items: baseline; gap: 6px; }
-  .agent-name { font-weight: 700; font-size: 13px; }
-  .agent-issue { color: #71717a; font-size: 11px; }
-  .agent-elapsed { font-family: 'SF Mono', monospace; font-size: 11px; color: #52525b; }
-  .agent-file { font-size: 11px; color: #52525b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .btn-kill { border: none; border-radius: 7px; padding: 5px 12px; font-size: 11px; font-weight: 800; cursor: pointer; background: #450a0a; color: #f87171; }
-  .btn-kill:active { opacity: 0.7; }
+/* ── main ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
 
-  /* PR rows */
-  .pr-row {
-    background: #0d1f16; border: 1px solid #14532d;
-    border-radius: 10px; padding: 10px 12px;
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 6px;
-  }
-  .pr-info { flex: 1; min-width: 0; }
-  .pr-title { font-size: 12px; color: #d4d4d8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pr-num { color: #52525b; margin-right: 3px; }
-  .pr-btns { display: flex; gap: 5px; flex-shrink: 0; }
-  .btn-view  { border: none; border-radius: 7px; padding: 5px 12px; font-size: 11px; font-weight: 800; cursor: pointer; background: #1c1c1e; color: #a1a1aa; }
-  .btn-merge { border: none; border-radius: 7px; padding: 5px 12px; font-size: 11px; font-weight: 800; cursor: pointer; background: #14532d; color: #86efac; }
-  .btn-view:active, .btn-merge:active { opacity: 0.7; }
+.topbar {
+  height: 52px;
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  gap: 8px;
+  flex-shrink: 0;
+}
+.topbar-title { font-weight: 700; font-size: 13px; flex: 1; }
+.topbar-actions { -webkit-app-region: no-drag; display: flex; gap: 6px; }
+.icon-btn {
+  background: none; border: 1px solid var(--border2); color: var(--muted);
+  font-size: 12px; cursor: pointer; padding: 4px 9px;
+  border-radius: 7px; line-height: 1;
+}
+.icon-btn:hover { background: var(--bg3); color: var(--text); }
 
-  .empty { color: #3f3f46; font-size: 12px; text-align: center; padding: 16px; background: #111113; border: 1px dashed #27272a; border-radius: 10px; }
+.view { flex: 1; overflow-y: auto; padding: 20px; display: none; }
+.view.active { display: block; }
+#view-console { padding: 0; display: none; flex-direction: column; }
+#view-console.active { display: flex; }
 
-  /* concurrency bar */
-  .concur-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-  .concur-slot { width: 28px; height: 6px; border-radius: 3px; background: #27272a; }
-  .concur-slot.active { background: #22c55e; }
-  .concur-label { font-size: 11px; color: #52525b; }
+/* ── cards ── */
+.card {
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: 12px; padding: 16px 18px; margin-bottom: 14px;
+}
+.card-title {
+  font-size: 10px; font-weight: 800; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px;
+}
 
-  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #27272a; border-top-color: #71717a; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 4px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+/* ── stats bar ── */
+.stats-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;
+}
+.stat-card {
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: 12px; padding: 14px 16px;
+}
+.stat-value { font-size: 28px; font-weight: 900; line-height: 1; }
+.stat-label { font-size: 10px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+.stat-card.green .stat-value { color: var(--green); }
+.stat-card.red   .stat-value { color: var(--red); }
+.stat-card.blue  .stat-value { color: var(--blue); }
+.stat-card.yellow .stat-value { color: var(--yellow); }
 
-  .last-refresh { font-size: 10px; color: #3f3f46; }
+/* ── orchestrator card ── */
+.orch-row {
+  display: flex; align-items: center; gap: 14px;
+}
+.orch-status-dot {
+  width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0;
+  transition: background 0.3s;
+}
+.orch-status-dot.running { background: var(--green); animation: pulse 2s infinite; }
+.orch-status-dot.stopped { background: var(--red); }
+.orch-status-dot.paused  { background: var(--yellow); animation: pulse 2s infinite; }
+.orch-info { flex: 1; }
+.orch-name { font-weight: 700; }
+.orch-desc { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.btn-row { display: flex; gap: 6px; flex-shrink: 0; }
+.btn {
+  border: none; border-radius: 8px; padding: 6px 13px;
+  font-size: 11px; font-weight: 800; cursor: pointer;
+  transition: opacity 0.1s;
+}
+.btn:active { opacity: 0.7; }
+.btn:disabled { opacity: 0.3; cursor: default; }
+.btn-green  { background: #14532d; color: #86efac; }
+.btn-red    { background: #450a0a; color: #f87171; }
+.btn-yellow { background: #451a03; color: #fbbf24; }
+.btn-ghost  { background: var(--bg3); color: var(--muted); border: 1px solid var(--border2); }
+
+/* ── slots ── */
+.slots-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.slot {
+  background: var(--bg); border: 1px dashed var(--border2);
+  border-radius: 10px; padding: 12px 14px; min-height: 80px;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.slot.active {
+  background: var(--bg3); border: 1px solid var(--border2); border-style: solid;
+}
+.slot-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+.slot-agent { display: flex; align-items: center; gap: 8px; }
+.agent-dot-live { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+.slot-name  { font-weight: 700; font-size: 13px; }
+.slot-issue { color: var(--muted); font-size: 11px; }
+.slot-elapsed { font-family: 'SF Mono', monospace; font-size: 11px; color: var(--dim); margin-left: auto; }
+.slot-file  { font-size: 11px; color: var(--dim); margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot-kill  { margin-top: 8px; }
+.btn-kill   { border: none; border-radius: 6px; padding: 3px 10px; font-size: 10px; font-weight: 800; cursor: pointer; background: #450a0a; color: #f87171; }
+.slot-empty { color: var(--dim); font-size: 12px; }
+
+/* ── recent jobs ── */
+.job-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.job-row:last-child { border-bottom: none; }
+.job-icon { font-size: 13px; flex-shrink: 0; }
+.job-info { flex: 1; min-width: 0; }
+.job-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-meta  { font-size: 11px; color: var(--dim); margin-top: 1px; }
+.job-dur   { font-size: 11px; color: var(--dim); font-family: 'SF Mono', monospace; flex-shrink: 0; }
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; border-radius: 20px; font-size: 10px; font-weight: 700;
+}
+.tag.claude { background: #2d1515; color: #f87171; }
+.tag.codex  { background: #14532d; color: #86efac; }
+.tag.gemini { background: #1a1a35; color: #818cf8; }
+
+/* ── chart ── */
+.overview-bottom { display: grid; grid-template-columns: 1fr 200px; gap: 14px; }
+.chart-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.chart-label { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+/* ── issues view ── */
+.filter-bar { display: flex; gap: 6px; margin-bottom: 14px; }
+.filter-btn {
+  padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border2);
+  background: none; color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.filter-btn.active { background: var(--bg2); color: var(--text); border-color: var(--border2); }
+
+.issue-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: var(--bg2);
+  border: 1px solid var(--border2); border-radius: 10px; margin-bottom: 6px;
+}
+.priority-badge {
+  font-size: 9px; font-weight: 900; padding: 2px 6px;
+  border-radius: 5px; flex-shrink: 0; letter-spacing: 0.05em;
+}
+.p0 { background: #450a0a; color: #f87171; }
+.p1 { background: #451a03; color: #fbbf24; }
+.p2 { background: #0c1a2e; color: #60a5fa; }
+.p3 { background: #1a1a1a; color: #71717a; }
+.issue-title { flex: 1; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.issue-num   { color: var(--dim); font-size: 11px; flex-shrink: 0; }
+.status-pill {
+  font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; flex-shrink: 0;
+}
+.status-pill.running  { background: #14532d; color: #86efac; }
+.status-pill.failed   { background: #450a0a; color: #f87171; }
+.status-pill.open     { background: var(--bg3); color: var(--muted); }
+.status-pill.deployed { background: #1e3a5f; color: #60a5fa; }
+.btn-unlock {
+  border: none; border-radius: 6px; padding: 3px 10px; font-size: 10px; font-weight: 800;
+  cursor: pointer; background: #1c1107; color: #fbbf24; flex-shrink: 0;
+}
+.btn-unlock:disabled { opacity: 0.5; }
+
+/* ── console view ── */
+.console-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--bg2); flex-shrink: 0;
+}
+.console-bar select {
+  background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
+  padding: 5px 10px; border-radius: 8px; font-size: 12px; flex: 1;
+  font-family: inherit;
+}
+.console-bar label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); cursor: pointer; }
+#terminal-wrap { flex: 1; overflow: hidden; padding: 12px; background: #050507; }
+.no-agents-msg { color: var(--dim); font-size: 12px; padding: 32px; }
+
+/* ── scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 </style>
 </head>
 <body>
 
-<div class="titlebar">
-  <span class="titlebar-title">Brainminds</span>
-  <div class="titlebar-actions">
-    <div class="pill-status">
-      <div class="dot" id="builder-dot"></div>
-      <span>Builder</span>
+<!-- ── sidebar ── -->
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <div>
+      <div class="sidebar-title">Brainminds</div>
+      <div class="sidebar-sub">AI Orchestrator</div>
     </div>
-    <div class="pill-status">
-      <div class="dot" id="prod-dot"></div>
-      <span>Prod</span>
-    </div>
-    <span class="last-refresh" id="last-refresh"></span>
-    <button class="icon-btn" onclick="refresh()" title="Refresh">↺</button>
   </div>
-</div>
 
+  <div class="nav">
+    <div class="nav-item active" onclick="showView('overview')" id="nav-overview">
+      <span class="nav-icon">◈</span> Overview
+    </div>
+    <div class="nav-item" onclick="showView('issues')" id="nav-issues">
+      <span class="nav-icon">≡</span> Issues
+      <span class="nav-badge hidden" id="failed-badge">0</span>
+    </div>
+    <div class="nav-item" onclick="showView('console')" id="nav-console">
+      <span class="nav-icon">&gt;_</span> Console
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="health-row"><div class="dot dim" id="builder-dot"></div> Builder</div>
+    <div class="health-row"><div class="dot dim" id="prod-dot"></div> Prod</div>
+    <div class="last-sync" id="last-sync">—</div>
+  </div>
+</nav>
+
+<!-- ── main ── -->
 <div class="main">
-
-  <!-- Orchestrator control -->
-  <div class="orch-card">
-    <div class="orch-status-dot unknown" id="orch-dot"></div>
-    <div class="orch-info">
-      <div class="orch-label" id="orch-label">Orchestrator</div>
-      <div class="orch-sub" id="orch-sub">Checking…</div>
-    </div>
-    <div class="orch-btns">
-      <button class="ctrl-btn btn-start"   id="btn-start"   onclick="orchStart()">Start</button>
-      <button class="ctrl-btn btn-pause"   id="btn-pause"   onclick="orchPause()">Pause</button>
-      <button class="ctrl-btn btn-restart" id="btn-restart" onclick="orchRestart()">Restart</button>
-      <button class="ctrl-btn btn-stop"    id="btn-stop"    onclick="orchStop()">Stop</button>
+  <div class="topbar">
+    <div class="topbar-title" id="view-title">Overview</div>
+    <div class="topbar-actions">
+      <button class="icon-btn" onclick="refresh()" title="Refresh">↺ Refresh</button>
+      <button class="icon-btn" onclick="api.openBrowser()" title="Open web UI">⤴ Web UI</button>
     </div>
   </div>
 
-  <!-- Active Agents -->
-  <div id="agents-section">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-      <div class="section-label" style="margin:0">Active Agents</div>
-      <div class="concur-bar" id="concur-bar"></div>
+  <!-- ── overview ── -->
+  <div class="view active" id="view-overview">
+
+    <div class="stats-grid">
+      <div class="stat-card blue">
+        <div class="stat-value" id="stat-active">—</div>
+        <div class="stat-label">Active Agents</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-value" id="stat-success">—</div>
+        <div class="stat-label">Succeeded Today</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-value" id="stat-failed">—</div>
+        <div class="stat-label">Failed Today</div>
+      </div>
+      <div class="stat-card yellow">
+        <div class="stat-value" id="stat-total">—</div>
+        <div class="stat-label">Total Jobs Run</div>
+      </div>
     </div>
-    <div id="agents-list"></div>
+
+    <!-- orchestrator control -->
+    <div class="card">
+      <div class="card-title">Orchestrator</div>
+      <div class="orch-row">
+        <div class="orch-status-dot stopped" id="orch-dot"></div>
+        <div class="orch-info">
+          <div class="orch-name" id="orch-name">—</div>
+          <div class="orch-desc" id="orch-desc">Checking…</div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-green"  id="btn-start"   onclick="orchStart()">▶ Start</button>
+          <button class="btn btn-yellow" id="btn-pause"   onclick="orchPause()">⏸ Pause</button>
+          <button class="btn btn-ghost"  id="btn-restart" onclick="orchRestart()">⟳ Restart</button>
+          <button class="btn btn-red"    id="btn-stop"    onclick="orchStop()">⏹ Stop</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- active agent slots -->
+    <div class="card">
+      <div class="card-title">Active Agent Slots (max 3)</div>
+      <div class="slots-row" id="slots-row">
+        <div class="slot"><span class="slot-empty">Empty</span></div>
+        <div class="slot"><span class="slot-empty">Empty</span></div>
+        <div class="slot"><span class="slot-empty">Empty</span></div>
+      </div>
+    </div>
+
+    <!-- bottom: recent jobs + chart -->
+    <div class="overview-bottom">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Recent Jobs</div>
+        <div id="job-history-list"><div style="color:var(--dim);font-size:12px">No jobs yet</div></div>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Success Rate</div>
+        <div class="chart-wrap">
+          <canvas id="rate-chart" width="120" height="120"></canvas>
+          <div class="chart-label" id="chart-label">No data</div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- PRs -->
-  <div id="prs-section">
-    <div class="section-label">Ready to Merge</div>
-    <div id="prs-list"></div>
+  <!-- ── issues ── -->
+  <div class="view" id="view-issues">
+    <div class="filter-bar">
+      <button class="filter-btn active" onclick="filterIssues('all',this)">All</button>
+      <button class="filter-btn" onclick="filterIssues('open',this)">Open</button>
+      <button class="filter-btn" onclick="filterIssues('running',this)">Running</button>
+      <button class="filter-btn" onclick="filterIssues('failed',this)">Failed</button>
+    </div>
+    <div id="issues-list"><div style="color:var(--dim);font-size:12px">Loading…</div></div>
   </div>
 
+  <!-- ── console ── -->
+  <div class="view" id="view-console">
+    <div class="console-bar">
+      <select id="agent-select" onchange="selectConsoleAgent(this.value)">
+        <option value="">— Select a running agent —</option>
+      </select>
+      <label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
+      <button class="icon-btn" onclick="clearTerminal()">Clear</button>
+    </div>
+    <div id="terminal-wrap"></div>
+    <div class="no-agents-msg hidden" id="no-agents-msg">No active agents — start the orchestrator and unlock some issues.</div>
+  </div>
 </div>
 
 <script>
 'use strict';
 
-let currentPaused = false;
-let orchOnline    = false;
-let elapsedTimer  = null;
+// ── state ──────────────────────────────────────────────────────────────────────
+let currentView    = 'overview';
+let orchOnline     = false;
+let currentPaused  = false;
+let allIssues      = [];
+let issueFilter    = 'all';
+let activeAgents   = [];
+let elapsedTimer   = null;
 let agentStartTimes = {};
+let rateChart      = null;
 
+// xterm
+let term        = null;
+let fitAddon    = null;
+let selectedAgent   = null;
+let lastLogLen  = 0;
+let consoleTimer = null;
+
+// ── boot ───────────────────────────────────────────────────────────────────────
 api.onRefresh(() => refresh());
-api.onStatus(d => applyStatus(d));
+api.onStatus(d => applyOverviewStatus(d));
+initTerminal();
 refresh();
 setInterval(refresh, 8000);
 
-async function refresh() {
-  try {
-    const d = await api.getStatus();
-    applyStatus(d);
-    document.getElementById('last-refresh').textContent =
-      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch {}
+// ── view switching ─────────────────────────────────────────────────────────────
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`view-${name}`).classList.add('active');
+  document.getElementById(`nav-${name}`).classList.add('active');
+  currentView = name;
+  const titles = { overview: 'Overview', issues: 'Issues', console: 'Console' };
+  document.getElementById('view-title').textContent = titles[name];
+  if (name === 'issues') loadIssues();
+  if (name === 'console') { startConsolePolling(); fitTerminal(); }
+  else stopConsolePolling();
 }
 
-function applyStatus(d) {
+// ── refresh ────────────────────────────────────────────────────────────────────
+async function refresh() {
+  const [status, metrics, history] = await Promise.all([
+    api.getStatus().catch(() => null),
+    api.getMetrics().catch(() => ({})),
+    api.getHistory().catch(() => []),
+  ]);
+  if (status) applyOverviewStatus(status, metrics, history);
+  document.getElementById('last-sync').textContent =
+    'Synced ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+// ── overview ───────────────────────────────────────────────────────────────────
+function applyOverviewStatus(d, metrics = {}, history = []) {
   orchOnline    = d.orchOnline !== false;
   currentPaused = !!d.paused;
-  const agents  = d.agents ?? [];
-  const prs     = d.prs ?? [];
+  activeAgents  = d.agents ?? [];
 
-  // Dots
   setDot('builder-dot', orchOnline);
   setDot('prod-dot', d.prodOk !== false);
 
-  // Orchestrator card
-  const dot    = document.getElementById('orch-dot');
-  const label  = document.getElementById('orch-label');
-  const sub    = document.getElementById('orch-sub');
+  // stats
+  setText('stat-active',  activeAgents.length);
+  setText('stat-success', metrics.todaySuccess ?? '—');
+  setText('stat-failed',  metrics.todayFailed  ?? '—');
+  setText('stat-total',   metrics.totalJobs    ?? '—');
+
+  // orchestrator card
+  const dot  = document.getElementById('orch-dot');
+  const name = document.getElementById('orch-name');
+  const desc = document.getElementById('orch-desc');
   const btnStart   = document.getElementById('btn-start');
   const btnPause   = document.getElementById('btn-pause');
   const btnStop    = document.getElementById('btn-stop');
@@ -247,122 +487,288 @@ function applyStatus(d) {
 
   if (!orchOnline) {
     dot.className = 'orch-status-dot stopped';
-    label.textContent = 'Orchestrator — Stopped';
-    sub.textContent = 'Click Start to launch the orchestrator on the server';
-    btnStart.disabled = false;
-    btnPause.disabled = true;
-    btnStop.disabled  = true;
-    btnRestart.disabled = false;
+    name.textContent = 'Orchestrator — Stopped';
+    desc.textContent = 'No agents will start while stopped. Click ▶ Start to resume.';
+    btnStart.disabled = false; btnPause.disabled = true; btnStop.disabled = true;
   } else if (currentPaused) {
-    dot.className = 'orch-status-dot unknown';
-    label.textContent = 'Orchestrator — Paused';
-    sub.textContent = `${agents.length} agent${agents.length !== 1 ? 's' : ''} running · polling suspended`;
-    btnStart.disabled = true;
-    btnPause.textContent = 'Resume';
-    btnPause.className = 'ctrl-btn btn-resume';
-    btnPause.disabled = false;
-    btnStop.disabled  = false;
-    btnRestart.disabled = false;
+    dot.className = 'orch-status-dot paused';
+    name.textContent = 'Orchestrator — Paused';
+    desc.textContent = `${activeAgents.length} agent(s) finishing · polling suspended`;
+    btnStart.disabled = true; btnPause.disabled = false; btnStop.disabled = false;
+    btnPause.textContent = '▶ Resume';
   } else {
     dot.className = 'orch-status-dot running';
-    label.textContent = 'Orchestrator — Running';
-    sub.textContent = `${agents.length} agent${agents.length !== 1 ? 's' : ''} active · polling every 2 min`;
-    btnStart.disabled = true;
-    btnPause.textContent = 'Pause';
-    btnPause.className = 'ctrl-btn btn-pause';
-    btnPause.disabled = false;
-    btnStop.disabled  = false;
-    btnRestart.disabled = false;
+    name.textContent = 'Orchestrator — Running';
+    desc.textContent = `${activeAgents.length}/3 agents active · polls every 2 min`;
+    btnStart.disabled = true; btnPause.disabled = false; btnStop.disabled = false;
+    btnPause.textContent = '⏸ Pause';
   }
 
-  // Concurrency slots
-  const bar = document.getElementById('concur-bar');
-  const MAX = 3;
-  bar.innerHTML = Array.from({ length: MAX }, (_, i) =>
-    `<div class="concur-slot${i < agents.length ? ' active' : ''}"></div>`
-  ).join('') + `<span class="concur-label">${agents.length}/${MAX} slots</span>`;
-
-  // Agents
+  // agent slots
   agentStartTimes = {};
-  const agentsList = document.getElementById('agents-list');
-  if (agents.length) {
-    agents.forEach(a => { agentStartTimes[a.issueNumber] = a.startedAt; });
-    agentsList.innerHTML = agents.map(renderAgent).join('');
-    startElapsedTimer();
-  } else {
-    clearInterval(elapsedTimer);
-    agentsList.innerHTML = '<div class="empty">No active agents</div>';
+  const slotsEl = document.getElementById('slots-row');
+  const MAX = 3;
+  const slots = Array.from({ length: MAX }, (_, i) => activeAgents[i] ?? null);
+  slotsEl.innerHTML = slots.map((a, i) => {
+    if (!a) return `<div class="slot"><span class="slot-empty">Slot ${i+1} — Empty</span></div>`;
+    agentStartTimes[a.issueNumber] = a.startedAt;
+    return `<div class="slot active">
+      <div class="slot-label">Slot ${i+1}</div>
+      <div class="slot-agent">
+        <div class="agent-dot-live"></div>
+        <span class="slot-name">${a.agentName}</span>
+        <span class="slot-issue">#${a.issueNumber}</span>
+        <span class="slot-elapsed" id="el-${a.issueNumber}">${elapsed(a.startedAt)}</span>
+      </div>
+      ${a.currentFile ? `<div class="slot-file">📄 ${a.currentFile}</div>` : ''}
+      <div class="slot-kill">
+        <button class="btn-kill" onclick="killAgent(${a.issueNumber},this)">⏹ Stop</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  clearInterval(elapsedTimer);
+  if (activeAgents.length) {
+    elapsedTimer = setInterval(() => {
+      for (const [n, iso] of Object.entries(agentStartTimes)) {
+        const el = document.getElementById(`el-${n}`);
+        if (el) el.textContent = elapsed(iso);
+      }
+    }, 1000);
   }
 
-  // PRs
-  const prsList = document.getElementById('prs-list');
-  if (prs.length) {
-    prsList.innerHTML = prs.map(renderPR).join('');
+  // failed badge
+  const failedCount = allIssues.filter(i => i.labels.some(l => l.name === 'ai-failed')).length;
+  const badge = document.getElementById('failed-badge');
+  if (failedCount > 0) {
+    badge.textContent = failedCount;
+    badge.classList.remove('hidden');
   } else {
-    prsList.innerHTML = '<div class="empty">No PRs waiting to merge</div>';
+    badge.classList.add('hidden');
   }
-}
 
-function renderAgent(a) {
-  return `
-    <div class="agent-row">
-      <div class="agent-dot"></div>
-      <div class="agent-info">
-        <div class="agent-main">
-          <span class="agent-name">${a.agentName}</span>
-          <span class="agent-issue">#${a.issueNumber}</span>
-          <span class="agent-elapsed" id="el-${a.issueNumber}">${elapsed(a.startedAt)}</span>
+  // recent jobs
+  const jobList = document.getElementById('job-history-list');
+  if (history.length === 0) {
+    jobList.innerHTML = '<div style="color:var(--dim);font-size:12px">No completed jobs yet</div>';
+  } else {
+    jobList.innerHTML = history.slice(0, 8).map(j => `
+      <div class="job-row">
+        <span class="job-icon">${j.success ? '✅' : '❌'}</span>
+        <div class="job-info">
+          <div class="job-title">${escHtml(j.title)}</div>
+          <div class="job-meta"><span class="tag ${j.agentName}">${j.agentName}</span> · #${j.issueNumber}</div>
         </div>
-        ${a.currentFile ? `<div class="agent-file">${a.currentFile}</div>` : ''}
-      </div>
-      <button class="btn-kill" onclick="killAgent(${a.issueNumber}, this)">Stop</button>
-    </div>`;
+        <span class="job-dur">${durFmt(j.durationMs)}</span>
+      </div>`).join('');
+  }
+
+  // success rate donut chart
+  updateChart(metrics.todaySuccess ?? 0, metrics.todayFailed ?? 0);
+
+  // update console dropdown
+  updateConsoleDropdown();
 }
 
-function renderPR(pr) {
-  return `
-    <div class="pr-row">
-      <div class="pr-info">
-        <div class="pr-title"><span class="pr-num">#${pr.number}</span>${pr.title}</div>
-      </div>
-      <div class="pr-btns">
-        <button class="btn-view"  onclick="api.openBrowser()">View ↗</button>
-        <button class="btn-merge" onclick="mergePR(${pr.number}, this)">Merge ▶</button>
-      </div>
+// ── issues view ────────────────────────────────────────────────────────────────
+async function loadIssues() {
+  document.getElementById('issues-list').innerHTML = '<div style="color:var(--dim);font-size:12px">Loading…</div>';
+  try {
+    allIssues = await api.getIssues();
+    renderIssues();
+  } catch {
+    document.getElementById('issues-list').innerHTML = '<div style="color:var(--red);font-size:12px">Failed to load issues — is the orchestrator running?</div>';
+  }
+}
+
+function filterIssues(f, btn) {
+  issueFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderIssues();
+}
+
+function renderIssues() {
+  const runningNums = activeAgents.map(a => a.issueNumber);
+  const filtered = allIssues.filter(issue => {
+    const labels = issue.labels.map(l => l.name);
+    if (issueFilter === 'running') return runningNums.includes(issue.number) || labels.includes('in-progress');
+    if (issueFilter === 'failed')  return labels.includes('ai-failed');
+    if (issueFilter === 'open')    return !labels.includes('ai-failed') && !labels.includes('in-progress') && !labels.includes('deployed');
+    return true;
+  });
+
+  const el = document.getElementById('issues-list');
+  if (!filtered.length) {
+    el.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:8px 0">No issues match this filter.</div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(issue => {
+    const labels   = issue.labels.map(l => l.name);
+    const priority = labels.find(l => /^P\d-/.test(l));
+    const pClass   = priority ? priority.split('-')[0].toLowerCase() : 'p3';
+    const pLabel   = priority ? priority.split('-')[0] : '—';
+    const isRun    = runningNums.includes(issue.number) || labels.includes('in-progress');
+    const isFailed = labels.includes('ai-failed');
+    const isDone   = labels.includes('deployed');
+    const status   = isRun ? 'running' : isFailed ? 'failed' : isDone ? 'deployed' : 'open';
+    const agent    = labels.find(l => l.startsWith('for-'));
+    const agentShort = agent ? agent.replace('for-', '').replace('-code','') : '—';
+
+    return `<div class="issue-row">
+      <span class="priority-badge ${pClass}">${pLabel}</span>
+      <span class="issue-num">#${issue.number}</span>
+      <span class="issue-title">${escHtml(issue.title)}</span>
+      <span class="tag ${agentShort === 'claude' ? 'claude' : agentShort === 'codex' ? 'codex' : 'gemini'}" style="flex-shrink:0">${agentShort}</span>
+      <span class="status-pill ${status}">${status}</span>
+      ${isFailed ? `<button class="btn-unlock" id="unlock-${issue.number}" onclick="unlockIssue(${issue.number},this)">↺ Retry</button>` : ''}
     </div>`;
+  }).join('');
+}
+
+async function unlockIssue(n, btn) {
+  btn.disabled = true; btn.textContent = '…';
+  const r = await api.unlockIssue(n).catch(() => ({ ok: false }));
+  if (r.ok) {
+    btn.textContent = '✓ Unlocked';
+    setTimeout(() => loadIssues(), 1500);
+  } else {
+    btn.textContent = '✗ Failed'; btn.disabled = false;
+  }
+}
+
+// ── console view ───────────────────────────────────────────────────────────────
+function initTerminal() {
+  if (typeof Terminal === 'undefined') return;
+  term = new Terminal({
+    theme: {
+      background: '#050507', foreground: '#e4e4e7',
+      cursor: '#71717a', selectionBackground: '#27272a',
+      black: '#18181b', red: '#f87171', green: '#86efac', yellow: '#fbbf24',
+      blue: '#60a5fa', magenta: '#c084fc', cyan: '#22d3ee', white: '#e4e4e7',
+      brightBlack: '#3f3f46', brightRed: '#ef4444', brightGreen: '#22c55e',
+      brightYellow: '#eab308', brightBlue: '#3b82f6', brightMagenta: '#a855f7',
+      brightCyan: '#06b6d4', brightWhite: '#f4f4f5',
+    },
+    fontFamily: "'SF Mono', 'Cascadia Code', Consolas, monospace",
+    fontSize: 12,
+    lineHeight: 1.4,
+    cursorBlink: false,
+    scrollback: 5000,
+    convertEol: true,
+  });
+  if (typeof FitAddon !== 'undefined') {
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+  }
+  term.open(document.getElementById('terminal-wrap'));
+  fitTerminal();
+  window.addEventListener('resize', fitTerminal);
+}
+
+function fitTerminal() {
+  if (fitAddon) { try { fitAddon.fit(); } catch {} }
+}
+
+function updateConsoleDropdown() {
+  const sel = document.getElementById('agent-select');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— Select a running agent —</option>' +
+    activeAgents.map(a => `<option value="${a.issueNumber}">${a.agentName} — #${a.issueNumber}</option>`).join('');
+
+  const noMsg = document.getElementById('no-agents-msg');
+  if (activeAgents.length === 0) {
+    noMsg.classList.remove('hidden');
+  } else {
+    noMsg.classList.add('hidden');
+    if (prev && activeAgents.some(a => String(a.issueNumber) === prev)) {
+      sel.value = prev;
+    } else if (!selectedAgent && activeAgents.length) {
+      sel.value = String(activeAgents[0].issueNumber);
+      selectConsoleAgent(sel.value);
+    }
+  }
+}
+
+function selectConsoleAgent(val) {
+  const n = Number(val);
+  if (!n) { selectedAgent = null; return; }
+  if (selectedAgent !== n) {
+    selectedAgent = n;
+    lastLogLen = 0;
+    if (term) { term.clear(); term.reset(); }
+  }
+}
+
+function startConsolePolling() {
+  stopConsolePolling();
+  consoleTimer = setInterval(pollConsoleLogs, 2000);
+  pollConsoleLogs();
+}
+
+function stopConsolePolling() {
+  if (consoleTimer) { clearInterval(consoleTimer); consoleTimer = null; }
+}
+
+async function pollConsoleLogs() {
+  if (!selectedAgent || !term) return;
+  const status = await api.getStatus().catch(() => null);
+  if (!status) return;
+  const agent = status.agents?.find(a => a.issueNumber === selectedAgent);
+  if (!agent) return;
+  const chunks = agent.output ?? [];
+  const newChunks = chunks.slice(lastLogLen);
+  lastLogLen = chunks.length;
+  if (newChunks.length) {
+    newChunks.forEach(chunk => term.write(chunk));
+    if (document.getElementById('autoscroll').checked) {
+      term.scrollToBottom();
+    }
+  }
+}
+
+function clearTerminal() {
+  if (term) { term.clear(); term.reset(); lastLogLen = 0; }
+}
+
+// ── chart ──────────────────────────────────────────────────────────────────────
+function updateChart(success, failed) {
+  const ctx = document.getElementById('rate-chart').getContext('2d');
+  const total = success + failed;
+  const pct   = total > 0 ? Math.round(success / total * 100) : 0;
+  document.getElementById('chart-label').textContent = total > 0 ? `${pct}% success (${total} today)` : 'No jobs today';
+
+  if (rateChart) { rateChart.destroy(); rateChart = null; }
+  if (total === 0) return;
+
+  rateChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [success, failed || 0.001],
+        backgroundColor: ['#22c55e', failed > 0 ? '#ef4444' : '#27272a'],
+        borderWidth: 0,
+        hoverOffset: 0,
+      }],
+    },
+    options: {
+      cutout: '70%',
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      animation: { duration: 400 },
+    },
+  });
 }
 
 // ── actions ────────────────────────────────────────────────────────────────────
-
-async function orchStart() {
-  setWorking('btn-start', 'Starting…');
-  await api.orchStart().catch(() => {});
-  await refresh();
-  resetBtn('btn-start', 'Start');
-}
-
-async function orchStop() {
-  setWorking('btn-stop', 'Stopping…');
-  await api.orchStop().catch(() => {});
-  await refresh();
-  resetBtn('btn-stop', 'Stop');
-}
-
-async function orchRestart() {
-  setWorking('btn-restart', 'Restarting…');
-  await api.orchRestart().catch(() => {});
-  await new Promise(r => setTimeout(r, 3000));
-  await refresh();
-  resetBtn('btn-restart', 'Restart');
-}
+async function orchStart()   { setBtn('btn-start',   '…'); await api.orchStart();   await refresh(); resetBtn('btn-start', '▶ Start'); }
+async function orchStop()    { setBtn('btn-stop',    '…'); await api.orchStop();    await refresh(); resetBtn('btn-stop', '⏹ Stop'); }
+async function orchRestart() { setBtn('btn-restart', '…'); await api.orchRestart(); await new Promise(r=>setTimeout(r,3000)); await refresh(); resetBtn('btn-restart','⟳ Restart'); }
 
 async function orchPause() {
-  const btn = document.getElementById('btn-pause');
-  const wasPaused = currentPaused;
-  btn.textContent = '…';
-  btn.disabled = true;
-  if (wasPaused) await api.resume().catch(() => {});
-  else           await api.pause().catch(() => {});
+  const b = document.getElementById('btn-pause');
+  b.textContent = '…'; b.disabled = true;
+  if (currentPaused) await api.resume().catch(() => {}); else await api.pause().catch(() => {});
   await refresh();
 }
 
@@ -372,43 +778,43 @@ async function killAgent(n, btn) {
   await refresh();
 }
 
-async function mergePR(n, btn) {
-  btn.textContent = '…'; btn.disabled = true;
-  await api.mergePR(n).catch(() => {});
-  await refresh();
+// ── helpers ────────────────────────────────────────────────────────────────────
+function elapsed(iso) {
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 }
 
-function setWorking(id, text) {
+function durFmt(ms) {
+  if (!ms) return '—';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s/60)}m ${s%60}s`;
+}
+
+function setDot(id, ok) {
+  const el = document.getElementById(id);
+  if (el) el.className = `dot ${ok ? 'ok' : 'bad'}`;
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function setBtn(id, text) {
   const b = document.getElementById(id);
   if (b) { b.textContent = text; b.disabled = true; }
 }
+
 function resetBtn(id, text) {
   const b = document.getElementById(id);
   if (b) { b.textContent = text; b.disabled = false; }
 }
 
-// ── helpers ────────────────────────────────────────────────────────────────────
-
-function elapsed(iso) {
-  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-}
-
-function startElapsedTimer() {
-  clearInterval(elapsedTimer);
-  elapsedTimer = setInterval(() => {
-    for (const [num, iso] of Object.entries(agentStartTimes)) {
-      const el = document.getElementById(`el-${num}`);
-      if (el) el.textContent = elapsed(iso);
-    }
-  }, 1000);
-}
-
-function setDot(id, ok) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.className = `dot ${ok ? 'ok pulse' : 'bad'}`;
-}
 </script>
 </body>
 </html>

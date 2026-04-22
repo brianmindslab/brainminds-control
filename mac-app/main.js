@@ -83,6 +83,18 @@ function orchGet(urlPath) {
   });
 }
 
+function orchGetText(urlPath) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(`${ORCH_BASE}${urlPath}`, (res) => {
+      let body = '';
+      res.on('data', d => (body += d));
+      res.on('end', () => { connected = true; updateIcon(); resolve(body); });
+    });
+    req.on('error', err => { connected = false; updateIcon(); reject(err); });
+    req.setTimeout(8000, () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
 function orchPost(urlPath) {
   return new Promise((resolve, reject) => {
     const opts = {
@@ -194,10 +206,10 @@ function createMainWindow() {
   }
 
   mainWin = new BrowserWindow({
-    width: 760,
-    height: 600,
-    minWidth: 600,
-    minHeight: 440,
+    width: 1060,
+    height: 700,
+    minWidth: 800,
+    minHeight: 500,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: '#0a0a0b',
@@ -234,6 +246,25 @@ ipcMain.handle('resume',   async () => orchPost('/resume').catch(() => ({})));
 ipcMain.handle('kill',     async (_, n) => orchPost(`/kill/${n}`).catch(() => ({})));
 ipcMain.handle('merge-pr', async (_, n) => { mergePR(n); return { ok: true }; });
 ipcMain.handle('open-browser', () => shell.openExternal('http://116.203.251.28:3000'));
+
+ipcMain.handle('get-issues', async () => {
+  try { return await orchGet('/issues'); }
+  catch {
+    const out = ghExec(`issue list --repo ${REPO} --state open --json number,title,labels,createdAt --limit 100`);
+    try { return JSON.parse(out); } catch { return []; }
+  }
+});
+
+ipcMain.handle('get-metrics',  async () => { try { return await orchGet('/metrics');  } catch { return {}; } });
+ipcMain.handle('get-history',  async () => { try { return await orchGet('/history');  } catch { return []; } });
+ipcMain.handle('get-logs',     async (_, n) => { try { return await orchGetText(`/logs/${n}`); } catch { return ''; } });
+
+ipcMain.handle('unlock-issue', async (_, n) => {
+  try {
+    sshExec(`gh issue edit ${n} --repo brianmindslab/braintime --remove-label ai-failed`);
+    return { ok: true };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
 
 ipcMain.handle('orch-start', async () => {
   try { sshExec('pm2 start orchestrator'); return { ok: true }; }

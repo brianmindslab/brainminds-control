@@ -8,6 +8,14 @@ function GH(cmd) {
   });
 }
 
+export function getAllOpenIssues(repo) {
+  const out = GH(
+    `issue list --repo ${repo} --state open ` +
+    `--json number,title,labels,assignees,createdAt --limit 100`
+  );
+  return JSON.parse(out);
+}
+
 export function getOpenIssues(repo) {
   const out = GH(
     `issue list --repo ${repo} --label "ai-task" --state open ` +
