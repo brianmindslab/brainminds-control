@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brainminds</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+
+  body {
+    background: #0a0a0b;
+    color: #f4f4f5;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    font-size: 13px;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  /* header drag region */
+  .header {
+    -webkit-app-region: drag;
+    background: #111113;
+    border-bottom: 1px solid #27272a;
+    padding: 12px 14px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-title { font-weight: 800; font-size: 13px; letter-spacing: 0.02em; }
+  .header-sub   { font-size: 11px; color: #52525b; margin-top: 1px; }
+  .header-btn   {
+    -webkit-app-region: no-drag;
+    background: none; border: none; color: #52525b;
+    font-size: 13px; cursor: pointer; padding: 4px 6px;
+    border-radius: 6px;
+  }
+  .header-btn:hover { background: #27272a; color: #a1a1aa; }
+
+  /* content */
+  .content { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+
+  /* big toggle */
+  .toggle-btn {
+    width: 100%; padding: 14px; border-radius: 14px; border: 1.5px solid;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    cursor: pointer; font-weight: 800; font-size: 15px; letter-spacing: 0.01em;
+    transition: all 0.12s; background: none;
+  }
+  .toggle-btn:active { transform: scale(0.97); }
+  .toggle-btn.running { border-color: #3f3f46; color: #f4f4f5; }
+  .toggle-btn.running:hover { border-color: #52525b; background: #18181b; }
+  .toggle-btn.paused  { border-color: #854d0e; color: #fbbf24; background: #1c1107; }
+  .toggle-btn.paused:hover  { background: #231508; }
+  .toggle-icon { font-size: 18px; }
+
+  /* section */
+  .section-label {
+    font-size: 10px; font-weight: 800; color: #3f3f46;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 5px;
+  }
+
+  /* agent row */
+  .agent-row {
+    display: flex; align-items: center; gap: 8px;
+    background: #111113; border: 1px solid #27272a;
+    border-radius: 10px; padding: 9px 10px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot.green  { background: #22c55e; animation: pulse 2s infinite; }
+  .dot.red    { background: #ef4444; }
+  .dot.idle   { background: #3f3f46; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .agent-info { flex: 1; min-width: 0; }
+  .agent-name { font-weight: 700; color: #f4f4f5; }
+  .agent-issue { color: #71717a; margin-left: 4px; }
+  .agent-time  { font-family: 'SF Mono', monospace; font-size: 11px; color: #52525b; }
+  .agent-file  { font-size: 11px; color: #52525b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+
+  .btn {
+    flex-shrink: 0; border: none; border-radius: 8px; padding: 5px 10px;
+    font-size: 11px; font-weight: 800; cursor: pointer; transition: background 0.1s;
+  }
+  .btn:active { transform: scale(0.95); }
+  .btn-stop   { background: #450a0a; color: #f87171; }
+  .btn-stop:hover { background: #5c1414; }
+  .btn-logs   { background: #27272a; color: #a1a1aa; margin-right: 4px; }
+  .btn-logs:hover { background: #3f3f46; }
+  .btn-merge  { background: #14532d; color: #86efac; }
+  .btn-merge:hover { background: #166534; }
+
+  /* PR row */
+  .pr-row {
+    background: #0d1f16; border: 1px solid #14532d;
+    border-radius: 10px; padding: 9px 10px;
+  }
+  .pr-title { font-size: 12px; color: #d4d4d8; margin-bottom: 7px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-num   { color: #52525b; margin-right: 4px; }
+  .pr-actions { display: flex; gap: 5px; }
+  .pr-actions .btn { flex: 1; text-align: center; padding: 6px; }
+
+  /* status bar */
+  .status-bar {
+    display: flex; align-items: center; gap: 6px;
+    border-top: 1px solid #18181b; padding: 7px 12px;
+    background: #0a0a0b;
+  }
+  .server-pill {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; color: #52525b;
+  }
+
+  /* connection overlay */
+  .connecting {
+    position: fixed; inset: 0; background: #0a0a0b;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; color: #52525b; font-size: 12px;
+  }
+  .spinner {
+    width: 20px; height: 20px; border: 2px solid #27272a;
+    border-top-color: #71717a; border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .hidden { display: none !important; }
+  .empty  { color: #3f3f46; font-size: 12px; text-align: center; padding: 10px 0; }
+</style>
+</head>
+<body>
+
+<!-- connecting overlay -->
+<div id="overlay" class="connecting">
+  <div class="spinner"></div>
+  <span>Connecting to server…</span>
+</div>
+
+<!-- header -->
+<div class="header">
+  <div>
+    <div class="header-title">Brainminds</div>
+    <div class="header-sub" id="header-sub">Orchestrator</div>
+  </div>
+  <button class="header-btn" onclick="openBrowser()" title="Open in browser">⤴</button>
+</div>
+
+<!-- main content -->
+<div id="main" class="hidden">
+  <div class="content">
+
+    <!-- toggle -->
+    <button id="toggle-btn" class="toggle-btn running" onclick="togglePause()">
+      <span class="toggle-icon" id="toggle-icon">▶</span>
+      <span id="toggle-label">RUNNING</span>
+    </button>
+
+    <!-- active agents -->
+    <div id="agents-section" class="hidden">
+      <div class="section-label">Active</div>
+      <div id="agents-list" style="display:flex;flex-direction:column;gap:5px"></div>
+    </div>
+
+    <!-- open PRs -->
+    <div id="prs-section" class="hidden">
+      <div class="section-label">Ready to Merge</div>
+      <div id="prs-list" style="display:flex;flex-direction:column;gap:5px"></div>
+    </div>
+
+    <!-- idle -->
+    <div id="idle-msg" class="empty hidden">No active agents</div>
+
+  </div>
+
+  <!-- status bar -->
+  <div class="status-bar">
+    <div class="server-pill">
+      <div class="dot" id="builder-dot"></div>
+      <span id="builder-info">Builder</span>
+    </div>
+    <div style="flex:1"></div>
+    <div class="server-pill">
+      <div class="dot" id="prod-dot"></div>
+      <span>Prod</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  let state = { paused: false, agents: [] };
+  let elapsedInterval = null;
+
+  // ── init ──────────────────────────────────────────────────────────
+  window.api.onRefresh(() => refresh());
+  window.api.onStatus(d => render(d));
+
+  refresh();
+
+  async function refresh() {
+    try {
+      const d = await window.api.getStatus();
+      render(d);
+      // Also fetch server health
+      fetchServers();
+    } catch {}
+  }
+
+  async function fetchServers() {
+    // Hit the server health through the tunnel if we can
+    // We'll just show the builder as connected if we have a tunnel
+    document.getElementById('builder-dot').className = 'dot green';
+    document.getElementById('builder-info').textContent = 'Builder';
+  }
+
+  // ── render ─────────────────────────────────────────────────────────
+  function render(d) {
+    state = d;
+
+    document.getElementById('overlay').classList.add('hidden');
+    document.getElementById('main').classList.remove('hidden');
+
+    // toggle button
+    const btn = document.getElementById('toggle-btn');
+    const paused = d.paused;
+    btn.className = `toggle-btn ${paused ? 'paused' : 'running'}`;
+    document.getElementById('toggle-icon').textContent = paused ? '⏸' : '▶';
+    document.getElementById('toggle-label').textContent = paused ? 'PAUSED — tap to resume' : 'RUNNING — tap to pause';
+
+    // agents
+    const agents = d.agents ?? [];
+    const agentsSection = document.getElementById('agents-section');
+    const agentsList    = document.getElementById('agents-list');
+    const idleMsg       = document.getElementById('idle-msg');
+
+    if (agents.length > 0) {
+      agentsSection.classList.remove('hidden');
+      idleMsg.classList.add('hidden');
+      agentsList.innerHTML = agents.map(a => agentHTML(a)).join('');
+    } else {
+      agentsSection.classList.add('hidden');
+      idleMsg.classList.remove('hidden');
+    }
+
+    // elapsed timers
+    clearInterval(elapsedInterval);
+    if (agents.length > 0) {
+      elapsedInterval = setInterval(() => {
+        agents.forEach(a => {
+          const el = document.getElementById(`elapsed-${a.issueNumber}`);
+          if (el) el.textContent = elapsed(a.startedAt);
+        });
+      }, 1000);
+    }
+
+    resize();
+  }
+
+  function agentHTML(a) {
+    const name = a.agentName ?? '?';
+    const num  = a.issueNumber;
+    return `
+      <div class="agent-row">
+        <div class="dot green"></div>
+        <div class="agent-info">
+          <div>
+            <span class="agent-name">${name}</span>
+            <span class="agent-issue">#${num}</span>
+            <span class="agent-time" id="elapsed-${num}">${elapsed(a.startedAt)}</span>
+          </div>
+          ${a.currentFile ? `<div class="agent-file">${a.currentFile}</div>` : ''}
+        </div>
+        <button class="btn btn-stop" onclick="killAgent(${num})">Stop</button>
+      </div>`;
+  }
+
+  // ── actions ────────────────────────────────────────────────────────
+  async function togglePause() {
+    const label = document.getElementById('toggle-label');
+    label.textContent = '…';
+    if (state.paused) {
+      await window.api.resume();
+    } else {
+      await window.api.pause();
+    }
+    await refresh();
+  }
+
+  async function killAgent(n) {
+    const btn = event?.target;
+    if (btn) btn.textContent = '…';
+    await window.api.kill(n);
+    await refresh();
+  }
+
+  function openBrowser() { window.api.openBrowser(); }
+
+  // ── helpers ────────────────────────────────────────────────────────
+  function elapsed(iso) {
+    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  }
+
+  function resize() {
+    requestAnimationFrame(() => {
+      window.api.resize(document.body.scrollHeight + 2);
+    });
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "brainminds",
+  "version": "1.0.0",
+  "description": "Brainminds Orchestrator — macOS menubar app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac --dir",
+    "dist": "electron-builder --mac"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.brianmindslab.brainminds",
+    "productName": "Brainminds",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/icon.icns",
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }]
+    },
+    "files": ["main.js", "preload.js", "index.html", "assets/"]
+  }
+}
