@@ -1,21 +1,27 @@
 @import "tailwindcss";
 
-:root {
-  --background: #09090b;
-  --foreground: #fafafa;
+* {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: #09090b;
+  color: #fafafa;
   font-family: 'Inter', system-ui, sans-serif;
+  overscroll-behavior: none;
 }
 
 /* Terminal output */
 .terminal {
   background: #000;
   color: #22c55e;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Menlo', monospace;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
+
+/* Safe area padding for iOS notch / home indicator */
+.safe-top    { padding-top:    env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.pb-safe     { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
