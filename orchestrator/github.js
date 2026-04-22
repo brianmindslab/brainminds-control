@@ -39,11 +39,12 @@ export function commentOnPR(repo, number, body) {
 }
 
 export function ensureLabelsExist(repo) {
-  const needed = ['ai-task', 'for-claude-code', 'for-codex', 'in-progress', 'needs-review', 'deployed', 'ai-failed'];
+  const needed = ['ai-task', 'for-claude-code', 'for-codex', 'for-gemini', 'in-progress', 'needs-review', 'deployed', 'ai-failed'];
   const colors = {
     'ai-task': '0075ca',
     'for-claude-code': 'd93f0b',
     'for-codex': '0e8a16',
+    'for-gemini': '1d76db',
     'in-progress': 'e4e669',
     'needs-review': 'cc317c',
     'deployed': '006b75',

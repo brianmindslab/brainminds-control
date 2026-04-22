@@ -1,22 +1,64 @@
 import { execSync } from 'child_process';
-import { readFileSync, createReadStream } from 'fs';
+import { readFileSync, mkdirSync } from 'fs';
 import { createServer } from 'http';
 import { runClaudeAgent } from './agents/claude.js';
-import { runGeminiAgent } from './agents/gemini.js';
+import { runGeminiAgent, runGeminiTaskAgent } from './agents/gemini.js';
 import { runCodexAgent } from './agents/codex.js';
-import { getOpenIssues, labelIssue, getPRsNeedingReview, commentOnPR, ensureLabelsExist } from './github.js';
+import { getOpenIssues, getPRsNeedingReview, labelIssue, commentOnPR, ensureLabelsExist } from './github.js';
 import { notify } from './telegram.js';
 import { getAllAgentStatus, getLogs, subscribe, killProcess } from './log-store.js';
 
-let paused = false;
-const POLL_INTERVAL = 2 * 60 * 1000;
-const projects = JSON.parse(readFileSync(new URL('../projects.json', import.meta.url))).projects;
+const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT ?? '3');
+const POLL_INTERVAL  = 2 * 60 * 1000;
+const WORKTREE_BASE  = '/opt/orchestrator/worktrees';
 
+const projects = JSON.parse(readFileSync(new URL('../projects.json', import.meta.url))).projects;
 const activeJobs = new Set();
 export const triggerQueue = new Set();
 
+let paused = false;
+
+mkdirSync(WORKTREE_BASE, { recursive: true });
+
+// ── worktree helpers ───────────────────────────────────────────────────────────
+
+function wtPath(issue) {
+  return `${WORKTREE_BASE}/issue-${issue.number}`;
+}
+
+function setupWorktree(project, issue) {
+  const wt     = wtPath(issue);
+  const branch = `ai/issue-${issue.number}`;
+
+  execSync(`git -C ${project.localPath} fetch origin ${project.defaultBranch}`, { stdio: 'pipe' });
+
+  // Remove stale worktree + branch if they exist
+  try { execSync(`git -C ${project.localPath} worktree remove --force ${wt}`, { stdio: 'pipe' }); } catch {}
+  try { execSync(`git -C ${project.localPath} branch -D ${branch}`, { stdio: 'pipe' }); } catch {}
+
+  execSync(
+    `git -C ${project.localPath} worktree add ${wt} -b ${branch} origin/${project.defaultBranch}`,
+    { stdio: 'pipe' }
+  );
+
+  // Symlink node_modules so agents skip npm install
+  try { execSync(`ln -sf ${project.localPath}/node_modules ${wt}/node_modules`, { stdio: 'pipe' }); } catch {}
+
+  return wt;
+}
+
+function cleanupWorktree(project, issue) {
+  const wt     = wtPath(issue);
+  const branch = `ai/issue-${issue.number}`;
+  try { execSync(`git -C ${project.localPath} worktree remove --force ${wt}`, { stdio: 'pipe' }); } catch {}
+  try { execSync(`git -C ${project.localPath} branch -D ${branch}`, { stdio: 'pipe' }); } catch {}
+}
+
+// ── main poll loop ─────────────────────────────────────────────────────────────
+
 async function tick() {
   if (paused) return;
+
   for (const project of projects) {
     let issues = [];
     try {
@@ -26,7 +68,16 @@ async function tick() {
       continue;
     }
 
+    let prs = [];
+    try {
+      prs = await getPRsNeedingReview(project.repo);
+    } catch (err) {
+      console.error(`[tick] failed to fetch PRs for ${project.repo}:`, err.message);
+    }
+
     for (const issue of issues) {
+      if (activeJobs.size >= MAX_CONCURRENT) break;
+
       const key = `issue-${issue.number}`;
       if (activeJobs.has(key)) continue;
 
@@ -35,7 +86,8 @@ async function tick() {
 
       let agent = null;
       if (labels.includes('for-claude-code')) agent = 'claude';
-      else if (labels.includes('for-codex')) agent = 'codex';
+      else if (labels.includes('for-codex'))  agent = 'codex';
+      else if (labels.includes('for-gemini')) agent = 'gemini';
 
       if (!agent) continue;
 
@@ -44,11 +96,6 @@ async function tick() {
       activeJobs.add(key);
       handleIssue(project, issue, agent).finally(() => activeJobs.delete(key));
     }
-
-    let prs = [];
-    try {
-      prs = await getPRsNeedingReview(project.repo);
-    } catch {}
 
     for (const pr of prs) {
       const key = `pr-${pr.number}`;
@@ -59,47 +106,52 @@ async function tick() {
   }
 }
 
+// ── issue handler — runs concurrently per issue in isolated worktree ───────────
+
 async function handleIssue(project, issue, agentName) {
-  console.log(`[orchestrator] starting issue #${issue.number} with ${agentName}`);
+  console.log(`[orchestrator] starting #${issue.number} with ${agentName} (active: ${activeJobs.size}/${MAX_CONCURRENT})`);
   await labelIssue(project.repo, issue.number, ['in-progress']);
   await notify(`🤖 *Starting #${issue.number}*\n${issue.title}\nAgent: ${agentName}`);
 
+  let wt;
   try {
-    execSync(`git -C ${project.localPath} checkout ${project.defaultBranch}`, { stdio: 'pipe' });
-    execSync(`git -C ${project.localPath} pull origin ${project.defaultBranch}`, { stdio: 'pipe' });
+    wt = setupWorktree(project, issue);
   } catch (err) {
-    console.error(`[git] pull failed:`, err.message);
+    console.error(`[git] worktree setup failed for #${issue.number}:`, err.message);
+    await labelIssue(project.repo, issue.number, ['ai-failed'], ['in-progress']);
+    await notify(`❌ *Failed #${issue.number}* (worktree setup)\n${err.message}`);
+    return;
   }
 
-  const branch = `ai/issue-${issue.number}`;
-  try { execSync(`git -C ${project.localPath} branch -D ${branch}`, { stdio: 'pipe' }); } catch {}
-  execSync(`git -C ${project.localPath} checkout -b ${branch}`, { stdio: 'pipe' });
+  const wtProject = { ...project, localPath: wt };
 
   try {
-    const context = buildContext(project, issue);
+    const context = buildContext(project, issue, wt);
 
     let success = false;
-    if (agentName === 'claude') success = await runClaudeAgent(project, issue, context);
-    else if (agentName === 'codex') success = await runCodexAgent(project, issue, context);
+    if (agentName === 'claude')       success = await runClaudeAgent(wtProject, issue, context);
+    else if (agentName === 'codex')   success = await runCodexAgent(wtProject, issue, context);
+    else if (agentName === 'gemini')  success = await runGeminiTaskAgent(wtProject, issue, context);
 
     if (!success) throw new Error('Agent reported failure');
 
     try {
-      execSync(`cd ${project.localPath} && npm run build`, { stdio: 'pipe', timeout: 300000 });
+      execSync(`cd ${wt} && npm run build`, { stdio: 'pipe', timeout: 300_000 });
     } catch (err) {
       throw new Error(`Build failed: ${err.message}`);
     }
 
-    const gitStatus = execSync(`git -C ${project.localPath} status --porcelain`, { encoding: 'utf8' });
+    const gitStatus = execSync(`git -C ${wt} status --porcelain`, { encoding: 'utf8' });
     if (gitStatus.trim()) {
       execSync(
-        `git -C ${project.localPath} add -A && ` +
-        `git -C ${project.localPath} commit -m "${issue.title.toLowerCase()} (closes #${issue.number})"`,
+        `git -C ${wt} add -A && ` +
+        `git -C ${wt} commit -m "${issue.title.toLowerCase()} (closes #${issue.number})"`,
         { stdio: 'pipe' }
       );
     }
 
-    execSync(`git -C ${project.localPath} push -u origin ${branch}`, { stdio: 'pipe' });
+    const branch = `ai/issue-${issue.number}`;
+    execSync(`git -C ${wt} push -u origin ${branch}`, { stdio: 'pipe' });
 
     const prUrl = execSync(
       `gh pr create --repo ${project.repo} ` +
@@ -117,12 +169,10 @@ async function handleIssue(project, issue, agentName) {
     await notify(`✅ *PR opened for #${issue.number}*\n${issue.title}\n${prUrl}`);
   } catch (err) {
     console.error(`[orchestrator] issue #${issue.number} failed:`, err.message);
-    try {
-      execSync(`git -C ${project.localPath} checkout ${project.defaultBranch}`, { stdio: 'pipe' });
-      execSync(`git -C ${project.localPath} branch -D ${branch}`, { stdio: 'pipe' });
-    } catch {}
     await labelIssue(project.repo, issue.number, ['ai-failed'], ['in-progress']);
     await notify(`❌ *Failed #${issue.number}*\n${issue.title}\n${err.message}\n_Remove \`ai-failed\` label to retry._`);
+  } finally {
+    cleanupWorktree(project, issue);
   }
 }
 
@@ -141,10 +191,10 @@ async function handlePRReview(project, pr) {
   }
 }
 
-function buildContext(project, issue) {
+function buildContext(project, issue, workingPath) {
   return `Project: ${project.name}
 Repo: ${project.repo}
-Local path: ${project.localPath}
+Working directory: ${workingPath}
 
 GitHub Issue #${issue.number}: ${issue.title}
 
@@ -153,12 +203,13 @@ ${issue.body ?? ''}
 INSTRUCTIONS:
 - Read the relevant files mentioned in the issue
 - Implement the exact fix/feature described
-- Run npm run build to verify no TypeScript errors
-- Commit with message: "${issue.title.toLowerCase()} (closes #${issue.number})"
+- Do NOT run npm run build — the orchestrator handles that
+- Do NOT commit — the orchestrator handles that
 - Do NOT push — the orchestrator handles that`.trim();
 }
 
-// HTTP API for control panel communication (port 3001)
+// ── HTTP API ───────────────────────────────────────────────────────────────────
+
 const httpServer = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -193,7 +244,7 @@ const httpServer = createServer((req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/pause') {
     paused = true;
-    console.log('[orchestrator] paused by control panel');
+    console.log('[orchestrator] paused');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, paused: true }));
     return;
@@ -201,8 +252,8 @@ const httpServer = createServer((req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/resume') {
     paused = false;
-    console.log('[orchestrator] resumed by control panel');
-    tick(); // run a tick immediately on resume
+    console.log('[orchestrator] resumed');
+    tick();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, paused: false }));
     return;
@@ -211,7 +262,7 @@ const httpServer = createServer((req, res) => {
   if (req.method === 'POST' && url.pathname.startsWith('/kill/')) {
     const issueNumber = Number(url.pathname.split('/kill/')[1]);
     const killed = killProcess(issueNumber);
-    console.log(`[orchestrator] kill request for #${issueNumber}: ${killed}`);
+    console.log(`[orchestrator] kill #${issueNumber}: ${killed}`);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: killed }));
     return;
@@ -224,7 +275,6 @@ const httpServer = createServer((req, res) => {
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-
     for (const chunk of getLogs(issueNumber)) {
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);
     }
@@ -239,11 +289,10 @@ const httpServer = createServer((req, res) => {
   res.end('not found');
 });
 
-httpServer.listen(3001, () => console.log('[orchestrator] internal HTTP on :3001'));
+httpServer.listen(3001, () => console.log('[orchestrator] HTTP on :3001'));
 
-console.log('🚀 Orchestrator started — polling every 2 minutes');
+console.log(`🚀 Orchestrator started — max ${MAX_CONCURRENT} concurrent agents, polling every 2 min`);
 
-// Ensure all required GitHub labels exist on every project repo at startup
 for (const project of projects) {
   ensureLabelsExist(project.repo);
 }
